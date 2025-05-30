@@ -24,11 +24,21 @@ type SSLAuthorityClient struct {
 	ca     *SSLAuthority
 }
 
-func NewSSLAuthorityClient(client *Client, ca *SSLAuthority) *SSLAuthorityClient {
+func NewSSLAuthorityClient(client *Client, ca *SSLAuthority) (*SSLAuthorityClient, error) {
+	if client == nil {
+		return nil, errors.New("ezca: cannot create an authority with a nil client")
+	}
+	if ca == nil {
+		return nil, errors.New("ezca: cannot create an authority with a nil authority")
+	}
+
+	// TODO: check that SSL CA actually exists
+	// https://github.com/markeytos/ezca-go/issues/2
+
 	return &SSLAuthorityClient{
 		client: client,
 		ca:     ca,
-	}
+	}, nil
 }
 
 type SignOptions struct {
@@ -203,8 +213,10 @@ func (c *SSLAuthorityClient) buildSignRequest(csr []byte, opts *SignOptions) (*S
 	if opts.Duration != 0 {
 		// NOTE: new API should be able to handle any duration
 		days := int(math.Round(opts.Duration.Hours() / 24))
-		if days <= 0 {
-			return nil, errors.New("ezca: duration must be in scale of days")
+		if days == 0 {
+			return nil, errors.New("ezca: duration must be in scale of days (> 24h)")
+		} else if days < 0 {
+			return nil, errors.New("ezca: duration must positive")
 		}
 		sr.ValidityInDays = days
 	}
@@ -280,11 +292,15 @@ func isASCII(s string) error {
 }
 
 func (c *SSLAuthorityClient) Revoke(ctx context.Context, cert *x509.Certificate) error {
-	req, err := c.revokeRequest(ctx, cert)
+	thumb := sha1.Sum(cert.Raw)
+	return c.RevokeWithThumbprint(ctx, thumb)
+}
+
+func (c *SSLAuthorityClient) RevokeWithThumbprint(ctx context.Context, thumbprint [20]byte) error {
+	req, err := c.revokeRequest(ctx, thumbprint)
 	if err != nil {
 		return err
 	}
-
 	_, err = c.client.internal.DoWithTokenResponseInAPIResult(ctx, req)
 	return err
 }
@@ -295,12 +311,11 @@ type RevokeRequest struct {
 	Thumbprint  string    `json:"Thumbprint"`
 }
 
-func (c *SSLAuthorityClient) revokeRequest(ctx context.Context, cert *x509.Certificate) (*http.Request, error) {
-	thumb := sha1.Sum(cert.Raw)
+func (c *SSLAuthorityClient) revokeRequest(ctx context.Context, thumbprint [20]byte) (*http.Request, error) {
 	rr := &RevokeRequest{
 		AuthorityID: c.ca.ID,
 		TemplateID:  c.ca.TemplateID,
-		Thumbprint:  hex.EncodeToString(thumb[:]),
+		Thumbprint:  hex.EncodeToString(thumbprint[:]),
 	}
 	return c.client.newRequestWithJSONBody(ctx, http.MethodPost, rr, "/api/CA/RevokeCertificateV2")
 }

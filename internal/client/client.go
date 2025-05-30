@@ -3,8 +3,11 @@ package client
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
+	"strings"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
@@ -38,6 +41,7 @@ func (c *Client) DoWithToken(ctx context.Context, req *http.Request) (*http.Resp
 
 func (c *Client) Do(req *http.Request) (*http.Response, error) {
 	// TODO: add retry and reauth when token is expired (pipeline of sorts)
+	// https://github.com/markeytos/ezca-go/issues/3
 	return http.DefaultClient.Do(req)
 }
 
@@ -60,9 +64,7 @@ func (c *Client) DoWithTokenJSONDecodeResponse(ctx context.Context, req *http.Re
 	if err != nil {
 		return err
 	}
-
-	dec := json.NewDecoder(httpRes.Body)
-	return dec.Decode(res)
+	return decodeReaderJson(httpRes.Body, res)
 }
 
 func (c *Client) DoJSONDecodeResponse(req *http.Request, res any) error {
@@ -70,9 +72,7 @@ func (c *Client) DoJSONDecodeResponse(req *http.Request, res any) error {
 	if err != nil {
 		return err
 	}
-
-	dec := json.NewDecoder(httpRes.Body)
-	return dec.Decode(res)
+	return decodeReaderJson(httpRes.Body, res)
 }
 
 type apiResult struct {
@@ -85,7 +85,7 @@ func (c *Client) DoWithTokenJSONDecodeResponseInAPIResult(ctx context.Context, r
 	if err != nil {
 		return err
 	}
-	return json.Unmarshal([]byte(msg), res)
+	return decodeDataJson([]byte(msg), res)
 }
 
 func (c *Client) DoWithTokenResponseInAPIResult(ctx context.Context, req *http.Request) (string, error) {
@@ -108,7 +108,7 @@ func (c *Client) DoJSONDecodeResponseInAPIResult(req *http.Request, res any) err
 	if err != nil {
 		return err
 	}
-	return json.Unmarshal([]byte(msg), res)
+	return decodeDataJson([]byte(msg), res)
 }
 
 func (c *Client) DoResponseInAPIResult(req *http.Request) (string, error) {
@@ -123,4 +123,23 @@ func (c *Client) DoResponseInAPIResult(req *http.Request) (string, error) {
 		return "", fmt.Errorf("api error: %s", result.Message)
 	}
 	return result.Message, nil
+}
+
+func decodeReaderJson(r io.Reader, v any) error {
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return fmt.Errorf("could not get data: %v", err)
+	}
+	return decodeDataJson(data, v)
+}
+
+func decodeDataJson(data []byte, v any) error {
+	err := json.Unmarshal(data, v)
+	if err == nil {
+		return nil
+	}
+	if strings.HasPrefix(string(data), "Error:") {
+		return errors.New(strings.Replace(string(data), "Error:", "api error:", 1))
+	}
+	return fmt.Errorf("invalid response from server: %v", err)
 }
