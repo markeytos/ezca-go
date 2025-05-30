@@ -34,7 +34,7 @@ func NewClient(ezcaURL string, credential azcore.TokenCredential) (*Client, erro
 	if parsedURL.Scheme == "" {
 		parsedURL.Scheme = "https"
 	} else if parsedURL.Scheme != "https" {
-		return nil, errors.New("EZCA must be reached with https")
+		return nil, errors.New("ezca: instance must be reached with https")
 	}
 
 	baseURL := url.URL{
@@ -49,7 +49,7 @@ func NewClient(ezcaURL string, credential azcore.TokenCredential) (*Client, erro
 	return c, nil
 }
 
-func (c *Client) ListCertificateAuthorities(ctx context.Context) ([]*CertificateAuthority, error) {
+func (c *Client) ListAuthorities(ctx context.Context) ([]*Authority, error) {
 	reqURL, err := url.JoinPath(c.ezcaBaseURL, "/api/CA/GetMyCAs")
 	if err != nil {
 		return nil, err
@@ -58,50 +58,50 @@ func (c *Client) ListCertificateAuthorities(ctx context.Context) ([]*Certificate
 	if err != nil {
 		return nil, err
 	}
-	var cas []*CertificateAuthority
+	var cas []*Authority
 	err = c.internal.DoWithTokenJSONDecodeResponseInAPIResult(ctx, req, &cas)
 	return cas, err
 }
 
-func (c *Client) ListSSLCertificateAuthorities(ctx context.Context) ([]*SSLCertificateAuthority, error) {
-	req, err := c.listCertificateAuthoritiesRequestFromAPI(ctx, "GetAvailableSSLCAs")
+func (c *Client) ListSSLAuthorities(ctx context.Context) ([]*SSLAuthority, error) {
+	req, err := c.listAuthoritiesRequestFromAPI(ctx, "GetAvailableSSLCAs")
 	if err != nil {
 		return nil, err
 	}
-	var cats []*CertificateAuthorityTemplate
+	var cats []*AuthorityTemplate
 	err = c.internal.DoWithTokenJSONDecodeResponse(ctx, req, &cats)
 
-	sslCAs := make([]*SSLCertificateAuthority, len(cats))
+	sslCAs := make([]*SSLAuthority, len(cats))
 
 	for i, cat := range cats {
 		if cat.TemplateType != TemplateTypeSSL {
-			return nil, errors.New("one of the CAs returned was not of template type SSL")
+			return nil, errors.New("ezca: one of the authorities fetched was not of an SSL template")
 		}
-		sslCAs[i] = (*SSLCertificateAuthority)(cat)
+		sslCAs[i] = (*SSLAuthority)(cat)
 	}
 
 	return sslCAs, err
 }
 
-func (c *Client) ListSCEPCertificateAuthorities(ctx context.Context) ([]*CertificateAuthority, error) {
-	return c.listCertificateAuthoritiesFromAPI(ctx, "GetAvailableScepCAs")
+func (c *Client) ListSCEPAuthorities(ctx context.Context) ([]*Authority, error) {
+	return c.listAuthoritiesFromAPI(ctx, "GetAvailableScepCAs")
 }
 
-func (c *Client) ListIssuingCertificateAuthorities(ctx context.Context) ([]*CertificateAuthority, error) {
-	return c.listCertificateAuthoritiesFromAPI(ctx, "GetAvailableCertIssuingCAs")
+func (c *Client) ListIssuingAuthorities(ctx context.Context) ([]*Authority, error) {
+	return c.listAuthoritiesFromAPI(ctx, "GetAvailableCertIssuingCAs")
 }
 
-func (c *Client) listCertificateAuthoritiesFromAPI(ctx context.Context, api string) ([]*CertificateAuthority, error) {
-	req, err := c.listCertificateAuthoritiesRequestFromAPI(ctx, api)
+func (c *Client) listAuthoritiesFromAPI(ctx context.Context, api string) ([]*Authority, error) {
+	req, err := c.listAuthoritiesRequestFromAPI(ctx, api)
 	if err != nil {
 		return nil, err
 	}
-	var cas []*CertificateAuthority
+	var cas []*Authority
 	err = c.internal.DoWithTokenJSONDecodeResponse(ctx, req, &cas)
 	return cas, err
 }
 
-func (c Client) listCertificateAuthoritiesRequestFromAPI(ctx context.Context, api string) (*http.Request, error) {
+func (c Client) listAuthoritiesRequestFromAPI(ctx context.Context, api string) (*http.Request, error) {
 	return c.newRequest(ctx, http.MethodGet, nil, "/api/CA", api)
 }
 
