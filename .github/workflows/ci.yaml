@@ -1,0 +1,30 @@
+name: Basic CI Checks
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    paths:
+      - "**.go"
+      - "go.mod"
+permissions:
+  contents: read
+  pull-requests: read
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: golangci/golangci-lint-action@v7.0.0
+  fmt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+      - run: go fmt ./...
+  vet:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+      - run: go vet ./...
