@@ -60,21 +60,21 @@ func init() {
 	addListAuthoritiesFlag(sslCmd.Flags())
 
 	addOutputFileFlag(sslGenerateCertificateCmd.Flags())
-	sslGenerateCertificateCmd.MarkFlagRequired(addAuthorityIDFlag(sslGenerateCertificateCmd.Flags()))
-	sslGenerateCertificateCmd.MarkFlagRequired(addTemplateIDFlag(sslGenerateCertificateCmd.Flags()))
+	sslGenerateCertificateCmd.MarkFlagRequired(addAuthorityIDFlag(sslGenerateCertificateCmd.Flags())) //nolint:errcheck // Marking flag as required.
+	sslGenerateCertificateCmd.MarkFlagRequired(addTemplateIDFlag(sslGenerateCertificateCmd.Flags()))  //nolint:errcheck // Marking flag as required.
 	addCertificateNameInformationFlags(sslGenerateCertificateCmd.Flags())
 	addSignOptionsFlags(sslGenerateCertificateCmd.Flags())
 	sslCmd.AddCommand(sslGenerateCertificateCmd)
 
 	addOutputFileFlag(sslSignCmd.Flags())
-	sslSignCmd.MarkFlagRequired(addAuthorityIDFlag(sslSignCmd.Flags()))
-	sslSignCmd.MarkFlagRequired(addTemplateIDFlag(sslSignCmd.Flags()))
+	sslSignCmd.MarkFlagRequired(addAuthorityIDFlag(sslSignCmd.Flags())) //nolint:errcheck // Marking flag as required.
+	sslSignCmd.MarkFlagRequired(addTemplateIDFlag(sslSignCmd.Flags()))  //nolint:errcheck // Marking flag as required.
 	addCertificateNameInformationFlags(sslSignCmd.Flags())
 	addSignOptionsFlags(sslSignCmd.Flags())
 	sslCmd.AddCommand(sslSignCmd)
 
-	sslRevokeCmd.MarkFlagRequired(addAuthorityIDFlag(sslRevokeCmd.Flags()))
-	sslRevokeCmd.MarkFlagRequired(addTemplateIDFlag(sslRevokeCmd.Flags()))
+	sslRevokeCmd.MarkFlagRequired(addAuthorityIDFlag(sslRevokeCmd.Flags())) //nolint:errcheck // Marking flag as required.
+	sslRevokeCmd.MarkFlagRequired(addTemplateIDFlag(sslRevokeCmd.Flags()))  //nolint:errcheck // Marking flag as required.
 	sslRevokeCmd.Flags().StringVarP(&thumbprintFlag, "thumbprint", "t", "", "Certificate thumbprint (SHA1 sum of raw contents)")
 	sslRevokeCmd.Flags().StringVarP(&certificateFlag, "certificate", "c", "", "Certificate file path, in PEM format")
 	sslRevokeCmd.MarkFlagsOneRequired("thumbprint", "certificate")

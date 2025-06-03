@@ -90,7 +90,7 @@ func defaultSSLAuthorityClient() (*ezca.SSLAuthorityClient, error) {
 	return ezca.NewSSLAuthorityClient(client, ezca.NewSSLAuthority(caid, temID))
 }
 
-func sslGenerateCertifcate(ctx context.Context) error {
+func sslGenerateCertifcate(ctx context.Context) (err error) {
 	// create CSR
 	var ipaddresses []net.IP
 	if len(sanIPFlag) > 0 {
@@ -150,7 +150,12 @@ func sslGenerateCertifcate(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("could not open nor create file: %s: %v", outputFileFlag, err)
 	}
-	defer f.Close()
+	defer func() {
+		ferr := f.Close()
+		if err == nil {
+			err = fmt.Errorf("file close error: %s: %v", outputFileFlag, ferr)
+		}
+	}()
 
 	var writeErrs []error
 	err = pem.Encode(f, &pem.Block{Type: "CERTIFICATE", Bytes: cert.Raw})
@@ -165,10 +170,10 @@ func sslGenerateCertifcate(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("errors saving new certificate: %s: %v", outputFileFlag, err)
 	}
-	return nil
+	return
 }
 
-func sslSign(ctx context.Context, csrPath string) error {
+func sslSign(ctx context.Context, csrPath string) (err error) {
 	// get CSR from file
 	csr, err := bytesFromPEMFile(csrPath, "CERTIFICATE REQUEST")
 	if err != nil {
@@ -185,13 +190,18 @@ func sslSign(ctx context.Context, csrPath string) error {
 	if err != nil {
 		return fmt.Errorf("could not open nor create file: %s: %v", outputFileFlag, err)
 	}
-	defer f.Close()
+	defer func() {
+		ferr := f.Close()
+		if err == nil {
+			err = fmt.Errorf("file close error: %s: %v", outputFileFlag, ferr)
+		}
+	}()
 
 	err = pem.Encode(f, &pem.Block{Type: "CERTIFICATE", Bytes: cert.Raw})
 	if err != nil {
 		return fmt.Errorf("errors saving new certificate: %s: %v", outputFileFlag, err)
 	}
-	return nil
+	return
 }
 
 func commonSSLSignCSR(ctx context.Context, csr []byte) (*x509.Certificate, error) {
