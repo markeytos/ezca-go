@@ -14,8 +14,13 @@ import (
 	"github.com/markeytos/ezca-go/internal/clock"
 )
 
+type httpClient interface {
+	Do(req *http.Request) (*http.Response, error)
+}
+
 type Client struct {
-	Clock clock.Clock
+	clock  clock.Clock
+	client httpClient
 
 	credential   azcore.TokenCredential
 	tokenOptions policy.TokenRequestOptions
@@ -24,47 +29,33 @@ type Client struct {
 
 func NewClient(credential azcore.TokenCredential, tokenOptions policy.TokenRequestOptions) *Client {
 	return &Client{
-		Clock:        clock.RealClock{},
+		clock:        clock.RealClock{},
+		client:       http.DefaultClient,
 		credential:   credential,
 		tokenOptions: tokenOptions,
 	}
 }
 
 func (c *Client) DoWithToken(ctx context.Context, req *http.Request) (*http.Response, error) {
-	token, err := c.getToken(ctx)
+	err := c.attachToken(ctx, req)
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Add("Authorization", "Bearer "+token)
 	return c.Do(req)
 }
 
 func (c *Client) Do(req *http.Request) (*http.Response, error) {
 	// TODO: add retry and reauth when token is expired (pipeline of sorts)
 	// https://github.com/markeytos/ezca-go/issues/3
-	return http.DefaultClient.Do(req)
-}
-
-func (c *Client) getToken(ctx context.Context) (string, error) {
-	var err error
-	if c.token == (azcore.AccessToken{}) {
-		c.token, err = c.credential.GetToken(ctx, c.tokenOptions)
-	}
-	if c.token.ExpiresOn.Before(c.Clock.Now()) {
-		c.token, err = c.credential.GetToken(ctx, c.tokenOptions)
-	}
-	if err != nil {
-		return "", err
-	}
-	return c.token.Token, nil
+	return c.client.Do(req)
 }
 
 func (c *Client) DoWithTokenJSONDecodeResponse(ctx context.Context, req *http.Request, res any) error {
-	httpRes, err := c.DoWithToken(ctx, req)
+	err := c.attachToken(ctx, req)
 	if err != nil {
 		return err
 	}
-	return decodeReaderJson(httpRes.Body, res)
+	return c.DoJSONDecodeResponse(req, res)
 }
 
 func (c *Client) DoJSONDecodeResponse(req *http.Request, res any) error {
@@ -81,26 +72,19 @@ type apiResult struct {
 }
 
 func (c *Client) DoWithTokenJSONDecodeResponseInAPIResult(ctx context.Context, req *http.Request, res any) error {
-	msg, err := c.DoWithTokenResponseInAPIResult(ctx, req)
+	err := c.attachToken(ctx, req)
 	if err != nil {
 		return err
 	}
-	return decodeDataJson([]byte(msg), res)
+	return c.DoJSONDecodeResponseInAPIResult(req, res)
 }
 
 func (c *Client) DoWithTokenResponseInAPIResult(ctx context.Context, req *http.Request) (string, error) {
-	result := apiResult{}
-
-	err := c.DoWithTokenJSONDecodeResponse(ctx, req, &result)
+	err := c.attachToken(ctx, req)
 	if err != nil {
 		return "", err
 	}
-
-	if !result.Success {
-		return "", fmt.Errorf("api error: %s", result.Message)
-	}
-
-	return result.Message, nil
+	return c.DoResponseInAPIResult(req)
 }
 
 func (c *Client) DoJSONDecodeResponseInAPIResult(req *http.Request, res any) error {
@@ -123,6 +107,30 @@ func (c *Client) DoResponseInAPIResult(req *http.Request) (string, error) {
 		return "", fmt.Errorf("api error: %s", result.Message)
 	}
 	return result.Message, nil
+}
+
+func (c *Client) attachToken(ctx context.Context, req *http.Request) error {
+	token, err := c.getToken(ctx)
+	if err != nil {
+		return err
+	}
+	req.Header.Add("Authorization", "Bearer "+token)
+	return nil
+}
+
+func (c *Client) getToken(ctx context.Context) (string, error) {
+	var err error
+	if c.token == (azcore.AccessToken{}) {
+		c.token, err = c.credential.GetToken(ctx, c.tokenOptions)
+	} else if !c.token.RefreshOn.IsZero() && c.token.RefreshOn.Before(c.clock.Now()) {
+		c.token, err = c.credential.GetToken(ctx, c.tokenOptions)
+	} else if c.token.ExpiresOn.Before(c.clock.Now()) {
+		c.token, err = c.credential.GetToken(ctx, c.tokenOptions)
+	}
+	if err != nil {
+		return "", err
+	}
+	return c.token.Token, nil
 }
 
 func decodeReaderJson(r io.Reader, v any) error {
