@@ -14,17 +14,40 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: golangci/golangci-lint-action@v8.0.0
+      - name: Check out code
+        uses: actions/checkout@v4
+      - name: Lint source
+        uses: golangci/golangci-lint-action@v8.0.0
   fmt:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-      - run: go fmt ./...
+      - name: Set up Go
+        uses: actions/setup-go@v5
+      - name: Check out code
+        uses: actions/checkout@v4
+      - name: Format source
+        run: go fmt ./...
   vet:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-      - run: go vet ./...
+      - name: Set up Go
+        uses: actions/setup-go@v5
+      - name: Check out code
+        uses: actions/checkout@v4
+      - name: Vet source
+        run: go vet ./...
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up Go
+        uses: actions/setup-go@v5
+      - name: Check out code
+        uses: actions/checkout@v4
+      - name: Run Unit tests
+        run: go test -race -covermode atomic -coverprofile=covprofile ./...
+      - name: Install goveralls
+        run: go install github.com/mattn/goveralls@latest
+      - name: Send coverage
+        env:
+          COVERALLS_TOKEN: ${{ secrets.COVERALLS_REPO_TOKEN }}
+        run: goveralls -coverprofile=covprofile -service=github
