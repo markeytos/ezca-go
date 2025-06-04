@@ -44,7 +44,9 @@ jobs:
       - name: Check out code
         uses: actions/checkout@v4
       - name: Run Unit tests
-        run: go test -race -covermode atomic -coverprofile=covprofile ./...
+        run: go test -race -covermode=atomic -coverprofile=covprofile ./...
+      - name: Apply `.test_cover_ignore`
+        run: grep -vFf .test_cover_ignore covprofile > tmp && mv tmp covprofile
       - name: Install goveralls
         run: go install github.com/mattn/goveralls@latest
       - name: Send coverage
