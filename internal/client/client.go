@@ -14,11 +14,28 @@ import (
 	"github.com/markeytos/ezca-go/internal/clock"
 )
 
+type apiResult struct {
+	Success bool   `json:"Success"`
+	Message string `json:"Message"`
+}
+
 type httpClient interface {
 	Do(req *http.Request) (*http.Response, error)
 }
 
-type Client struct {
+type Client interface {
+	Do(req *http.Request) (*http.Response, error)
+	DoJSONDecodeResponse(req *http.Request, res any) error
+	DoResponseInAPIResult(req *http.Request) (string, error)
+	DoJSONDecodeResponseInAPIResult(req *http.Request, res any) error
+
+	DoWithToken(ctx context.Context, req *http.Request) (*http.Response, error)
+	DoWithTokenJSONDecodeResponse(ctx context.Context, req *http.Request, res any) error
+	DoWithTokenResponseInAPIResult(ctx context.Context, req *http.Request) (string, error)
+	DoWithTokenJSONDecodeResponseInAPIResult(ctx context.Context, req *http.Request, res any) error
+}
+
+type client struct {
 	clock  clock.Clock
 	client httpClient
 
@@ -27,8 +44,8 @@ type Client struct {
 	token        azcore.AccessToken
 }
 
-func NewClient(credential azcore.TokenCredential, tokenOptions policy.TokenRequestOptions) *Client {
-	return &Client{
+func NewClient(credential azcore.TokenCredential, tokenOptions policy.TokenRequestOptions) Client {
+	return &client{
 		clock:        clock.RealClock{},
 		client:       http.DefaultClient,
 		credential:   credential,
@@ -36,29 +53,13 @@ func NewClient(credential azcore.TokenCredential, tokenOptions policy.TokenReque
 	}
 }
 
-func (c *Client) DoWithToken(ctx context.Context, req *http.Request) (*http.Response, error) {
-	err := c.attachToken(ctx, req)
-	if err != nil {
-		return nil, err
-	}
-	return c.Do(req)
-}
-
-func (c *Client) Do(req *http.Request) (*http.Response, error) {
+func (c *client) Do(req *http.Request) (*http.Response, error) {
 	// TODO: add retry and reauth when token is expired (pipeline of sorts)
 	// https://github.com/markeytos/ezca-go/issues/3
 	return c.client.Do(req)
 }
 
-func (c *Client) DoWithTokenJSONDecodeResponse(ctx context.Context, req *http.Request, res any) error {
-	err := c.attachToken(ctx, req)
-	if err != nil {
-		return err
-	}
-	return c.DoJSONDecodeResponse(req, res)
-}
-
-func (c *Client) DoJSONDecodeResponse(req *http.Request, res any) error {
+func (c *client) DoJSONDecodeResponse(req *http.Request, res any) error {
 	httpRes, err := c.Do(req)
 	if err != nil {
 		return err
@@ -66,36 +67,7 @@ func (c *Client) DoJSONDecodeResponse(req *http.Request, res any) error {
 	return decodeReaderJson(httpRes.Body, res)
 }
 
-type apiResult struct {
-	Success bool   `json:"Success"`
-	Message string `json:"Message"`
-}
-
-func (c *Client) DoWithTokenJSONDecodeResponseInAPIResult(ctx context.Context, req *http.Request, res any) error {
-	err := c.attachToken(ctx, req)
-	if err != nil {
-		return err
-	}
-	return c.DoJSONDecodeResponseInAPIResult(req, res)
-}
-
-func (c *Client) DoWithTokenResponseInAPIResult(ctx context.Context, req *http.Request) (string, error) {
-	err := c.attachToken(ctx, req)
-	if err != nil {
-		return "", err
-	}
-	return c.DoResponseInAPIResult(req)
-}
-
-func (c *Client) DoJSONDecodeResponseInAPIResult(req *http.Request, res any) error {
-	msg, err := c.DoResponseInAPIResult(req)
-	if err != nil {
-		return err
-	}
-	return decodeDataJson([]byte(msg), res)
-}
-
-func (c *Client) DoResponseInAPIResult(req *http.Request) (string, error) {
+func (c *client) DoResponseInAPIResult(req *http.Request) (string, error) {
 	result := apiResult{}
 
 	err := c.DoJSONDecodeResponse(req, &result)
@@ -109,7 +81,47 @@ func (c *Client) DoResponseInAPIResult(req *http.Request) (string, error) {
 	return result.Message, nil
 }
 
-func (c *Client) attachToken(ctx context.Context, req *http.Request) error {
+func (c *client) DoJSONDecodeResponseInAPIResult(req *http.Request, res any) error {
+	msg, err := c.DoResponseInAPIResult(req)
+	if err != nil {
+		return err
+	}
+	return decodeDataJson([]byte(msg), res)
+}
+
+func (c *client) DoWithToken(ctx context.Context, req *http.Request) (*http.Response, error) {
+	err := c.attachToken(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	return c.Do(req)
+}
+
+func (c *client) DoWithTokenJSONDecodeResponse(ctx context.Context, req *http.Request, res any) error {
+	err := c.attachToken(ctx, req)
+	if err != nil {
+		return err
+	}
+	return c.DoJSONDecodeResponse(req, res)
+}
+
+func (c *client) DoWithTokenResponseInAPIResult(ctx context.Context, req *http.Request) (string, error) {
+	err := c.attachToken(ctx, req)
+	if err != nil {
+		return "", err
+	}
+	return c.DoResponseInAPIResult(req)
+}
+
+func (c *client) DoWithTokenJSONDecodeResponseInAPIResult(ctx context.Context, req *http.Request, res any) error {
+	err := c.attachToken(ctx, req)
+	if err != nil {
+		return err
+	}
+	return c.DoJSONDecodeResponseInAPIResult(req, res)
+}
+
+func (c *client) attachToken(ctx context.Context, req *http.Request) error {
 	token, err := c.getToken(ctx)
 	if err != nil {
 		return err
@@ -118,7 +130,7 @@ func (c *Client) attachToken(ctx context.Context, req *http.Request) error {
 	return nil
 }
 
-func (c *Client) getToken(ctx context.Context) (string, error) {
+func (c *client) getToken(ctx context.Context) (string, error) {
 	var err error
 	if c.token == (azcore.AccessToken{}) {
 		c.token, err = c.credential.GetToken(ctx, c.tokenOptions)

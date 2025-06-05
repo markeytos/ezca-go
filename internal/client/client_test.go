@@ -1,7 +1,6 @@
 package client
 
 import (
-	"context"
 	"errors"
 	"io"
 	"net/http"
@@ -12,6 +11,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/markeytos/ezca-go/internal/clock"
+	"github.com/markeytos/ezca-go/internal/testshared"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -65,8 +65,8 @@ var (
 	}
 
 	errNoCred          = errors.New("no credential")
-	credentialNewToken = MockCredential{Token: testTokenNew}
-	credentialNoToken  = MockCredential{Error: errNoCred}
+	credentialNewToken = testshared.MockCredential{Token: testTokenNew}
+	credentialNoToken  = testshared.MockCredential{Error: errNoCred}
 
 	errBadClient = errors.New("bad client")
 	badClient    = MockHttpClient{DoFunc: func(r *http.Request) (*http.Response, error) {
@@ -77,31 +77,6 @@ var (
 	testJSON                = jsonStruct{Key: "value", List: []int{0, 1, 2}}
 )
 
-type MockCredential struct {
-	Token azcore.AccessToken
-	Error error
-}
-
-func (m *MockCredential) GetToken(ctx context.Context, options policy.TokenRequestOptions) (azcore.AccessToken, error) {
-	return m.Token, m.Error
-}
-
-type MockClock struct {
-	now time.Time
-}
-
-func (c MockClock) Now() time.Time {
-	return c.now
-}
-
-func (c MockClock) After(d time.Duration) <-chan time.Time {
-	return time.After(d)
-}
-
-func (c MockClock) Tick(d time.Duration) <-chan time.Time {
-	return time.Tick(d)
-}
-
 type MockHttpClient struct {
 	DoFunc func(*http.Request) (*http.Response, error)
 }
@@ -109,14 +84,6 @@ type MockHttpClient struct {
 func (c *MockHttpClient) Do(req *http.Request) (*http.Response, error) {
 	return c.DoFunc(req)
 }
-
-// type testVals struct {
-// 	ClockNow          time.Time
-// 	CurrentCredential azcore.TokenCredential
-// 	CurrentToken      azcore.AccessToken
-// 	ResBodyStr        string
-// 	CompareStr        string
-// }
 
 type jsonStruct struct {
 	Key  string `json:"key"`
@@ -126,7 +93,7 @@ type jsonStruct struct {
 func TestNewClient(t *testing.T) {
 	c := NewClient(&credentialNewToken, testTokenRequestOptions)
 	require.NotNil(t, c)
-	assert.Equal(t, c, &Client{
+	assert.Equal(t, c, &client{
 		clock:        clock.RealClock{},
 		client:       http.DefaultClient,
 		credential:   &credentialNewToken,
@@ -159,7 +126,7 @@ func TestDoWithToken(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			req := &http.Request{}
 			c := newClientSaveReqWithBodyRes(
-				MockClock{now: v.ClockNow},
+				testshared.MockClock{Time: v.ClockNow},
 				v.CurrentCredential,
 				v.CurrentToken,
 				req,
@@ -174,7 +141,7 @@ func TestDoWithToken(t *testing.T) {
 
 	t.Run("error in client", func(t *testing.T) {
 		c := newClientWithMockHttp(
-			MockClock{now: timeEmpty},
+			testshared.MockClock{Time: timeEmpty},
 			&credentialNewToken,
 			emptyToken,
 			&badClient,
@@ -190,7 +157,7 @@ func TestDoWithToken(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			c := newClientSaveReqWithBodyRes(
-				MockClock{now: timeExpired},
+				testshared.MockClock{Time: timeExpired},
 				&credentialNoToken,
 				token,
 				nil,
@@ -208,7 +175,7 @@ func TestDoWithTokenJSONDecodeResponse(t *testing.T) {
 		req := &http.Request{}
 		s := jsonStruct{}
 		c := newClientSaveReqWithBodyRes(
-			MockClock{now: timeEmpty},
+			testshared.MockClock{Time: timeEmpty},
 			&credentialNewToken,
 			emptyToken,
 			req,
@@ -237,7 +204,7 @@ func TestDoWithTokenJSONDecodeResponse(t *testing.T) {
 			req := &http.Request{}
 			s := jsonStruct{}
 			c := newClientSaveReqWithBodyRes(
-				MockClock{now: timeEmpty},
+				testshared.MockClock{Time: timeEmpty},
 				&credentialNewToken,
 				emptyToken,
 				req,
@@ -253,7 +220,7 @@ func TestDoWithTokenJSONDecodeResponse(t *testing.T) {
 	t.Run("error in client", func(t *testing.T) {
 		s := jsonStruct{}
 		c := newClientWithMockHttp(
-			MockClock{now: timeEmpty},
+			testshared.MockClock{Time: timeEmpty},
 			&credentialNewToken,
 			emptyToken,
 			&badClient,
@@ -269,7 +236,7 @@ func TestDoWithTokenJSONDecodeResponse(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			c := newClientSaveReqWithBodyRes(
-				MockClock{now: timeExpired},
+				testshared.MockClock{Time: timeExpired},
 				&credentialNoToken,
 				token,
 				nil,
@@ -285,7 +252,7 @@ func TestDoJSONDecodeResponse(t *testing.T) {
 	t.Run("valid JSON", func(t *testing.T) {
 		s := jsonStruct{}
 		c := newClientSaveReqWithBodyRes(
-			MockClock{now: timeEmpty},
+			testshared.MockClock{Time: timeEmpty},
 			&credentialNewToken,
 			testToken,
 			nil,
@@ -312,7 +279,7 @@ func TestDoJSONDecodeResponse(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			s := jsonStruct{}
 			c := newClientSaveReqWithBodyRes(
-				MockClock{now: timeEmpty},
+				testshared.MockClock{Time: timeEmpty},
 				&credentialNewToken,
 				emptyToken,
 				nil,
@@ -327,7 +294,7 @@ func TestDoJSONDecodeResponse(t *testing.T) {
 	t.Run("error in client", func(t *testing.T) {
 		s := jsonStruct{}
 		c := newClientWithMockHttp(
-			MockClock{now: timeEmpty},
+			testshared.MockClock{Time: timeEmpty},
 			&credentialNoToken,
 			testToken,
 			&badClient,
@@ -343,7 +310,7 @@ func TestDoWithTokenJSONDecodeResponseInAPIResult(t *testing.T) {
 		req := &http.Request{}
 		s := jsonStruct{}
 		c := newClientSaveReqWithBodyRes(
-			MockClock{now: timeEmpty},
+			testshared.MockClock{Time: timeEmpty},
 			&credentialNewToken,
 			testToken,
 			req,
@@ -372,7 +339,7 @@ func TestDoWithTokenJSONDecodeResponseInAPIResult(t *testing.T) {
 			req := &http.Request{}
 			s := jsonStruct{}
 			c := newClientSaveReqWithBodyRes(
-				MockClock{now: timeEmpty},
+				testshared.MockClock{Time: timeEmpty},
 				&credentialNewToken,
 				testToken,
 				req,
@@ -388,7 +355,7 @@ func TestDoWithTokenJSONDecodeResponseInAPIResult(t *testing.T) {
 	t.Run("error in client", func(t *testing.T) {
 		s := jsonStruct{}
 		c := newClientWithMockHttp(
-			MockClock{now: timeEmpty},
+			testshared.MockClock{Time: timeEmpty},
 			&credentialNewToken,
 			emptyToken,
 			&badClient,
@@ -405,7 +372,7 @@ func TestDoWithTokenJSONDecodeResponseInAPIResult(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			s := jsonStruct{}
 			c := newClientSaveReqWithBodyRes(
-				MockClock{now: timeExpired},
+				testshared.MockClock{Time: timeExpired},
 				&credentialNoToken,
 				token,
 				nil,
@@ -422,7 +389,7 @@ func TestDoWithTokenResponseInAPIResult(t *testing.T) {
 	t.Run("successful result", func(t *testing.T) {
 		req := &http.Request{}
 		c := newClientSaveReqWithBodyRes(
-			MockClock{now: timeEmpty},
+			testshared.MockClock{Time: timeEmpty},
 			&credentialNewToken,
 			testToken,
 			req,
@@ -450,7 +417,7 @@ func TestDoWithTokenResponseInAPIResult(t *testing.T) {
 		req := &http.Request{}
 		t.Run(name, func(t *testing.T) {
 			c := newClientSaveReqWithBodyRes(
-				MockClock{now: timeEmpty},
+				testshared.MockClock{Time: timeEmpty},
 				&credentialNewToken,
 				testToken,
 				req,
@@ -465,7 +432,7 @@ func TestDoWithTokenResponseInAPIResult(t *testing.T) {
 
 	t.Run("error in client", func(t *testing.T) {
 		c := newClientWithMockHttp(
-			MockClock{now: timeEmpty},
+			testshared.MockClock{Time: timeEmpty},
 			&credentialNewToken,
 			emptyToken,
 			&badClient,
@@ -481,7 +448,7 @@ func TestDoWithTokenResponseInAPIResult(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			c := newClientSaveReqWithBodyRes(
-				MockClock{now: timeExpired},
+				testshared.MockClock{Time: timeExpired},
 				&credentialNoToken,
 				token,
 				nil,
@@ -498,7 +465,7 @@ func TestDoJSONDecodeResponseInAPIResult(t *testing.T) {
 	t.Run("successful result", func(t *testing.T) {
 		s := jsonStruct{}
 		c := newClientSaveReqWithBodyRes(
-			MockClock{now: timeEmpty},
+			testshared.MockClock{Time: timeEmpty},
 			&credentialNewToken,
 			testToken,
 			nil,
@@ -525,7 +492,7 @@ func TestDoJSONDecodeResponseInAPIResult(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			s := jsonStruct{}
 			c := newClientSaveReqWithBodyRes(
-				MockClock{now: timeEmpty},
+				testshared.MockClock{Time: timeEmpty},
 				&credentialNewToken,
 				testToken,
 				nil,
@@ -541,7 +508,7 @@ func TestDoJSONDecodeResponseInAPIResult(t *testing.T) {
 func TestDoResponseInAPIResult(t *testing.T) {
 	t.Run("successful result", func(t *testing.T) {
 		c := newClientSaveReqWithBodyRes(
-			MockClock{now: timeEmpty},
+			testshared.MockClock{Time: timeEmpty},
 			&credentialNewToken,
 			testToken,
 			nil,
@@ -567,7 +534,7 @@ func TestDoResponseInAPIResult(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			c := newClientSaveReqWithBodyRes(
-				MockClock{now: timeEmpty},
+				testshared.MockClock{Time: timeEmpty},
 				&credentialNewToken,
 				testToken,
 				nil,
@@ -600,7 +567,7 @@ func TestGetToken(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			c := newClient(
-				MockClock{now: v.ClockNow},
+				testshared.MockClock{Time: v.ClockNow},
 				&credentialNewToken,
 				v.CurrentToken,
 			)
@@ -616,7 +583,7 @@ func TestGetToken(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			c := newClient(
-				MockClock{now: timeExpired},
+				testshared.MockClock{Time: timeExpired},
 				&credentialNoToken,
 				token,
 			)
@@ -659,7 +626,7 @@ func TestDecodeDataJson(t *testing.T) {
 	})
 }
 
-func newClientSaveReqWithBodyRes(clock MockClock, credential azcore.TokenCredential, token azcore.AccessToken, req *http.Request, body string) *Client {
+func newClientSaveReqWithBodyRes(clock testshared.MockClock, credential azcore.TokenCredential, token azcore.AccessToken, req *http.Request, body string) *client {
 	return newClientWithMockHttp(
 		clock,
 		credential,
@@ -675,17 +642,20 @@ func newClientSaveReqWithBodyRes(clock MockClock, credential azcore.TokenCredent
 	)
 }
 
-func newClientWithMockHttp(clock MockClock, credential azcore.TokenCredential, token azcore.AccessToken, client httpClient) *Client {
+func newClientWithMockHttp(clock testshared.MockClock, credential azcore.TokenCredential, token azcore.AccessToken, client httpClient) *client {
 	c := newClient(clock, credential, token)
 	c.client = client
 	return c
 }
 
-func newClient(clock MockClock, credential azcore.TokenCredential, token azcore.AccessToken) *Client {
-	c := NewClient(credential, testTokenRequestOptions)
-	c.clock = clock
-	c.token = token
-	return c
+func newClient(clock testshared.MockClock, credential azcore.TokenCredential, token azcore.AccessToken) *client {
+	return &client{
+		clock:        clock,
+		client:       http.DefaultClient,
+		credential:   credential,
+		tokenOptions: testTokenRequestOptions,
+		token:        token,
+	}
 }
 
 func testRequest() *http.Request {

@@ -11,6 +11,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/url"
 	"os"
@@ -21,6 +22,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/markeytos/ezca-go"
 )
+
+var out io.Writer = os.Stdout
 
 func defaultClient() (*ezca.Client, error) {
 	cred, err := azidentity.NewDefaultAzureCredential(nil)
@@ -42,7 +45,7 @@ func listAuthorities(ctx context.Context) error {
 	}
 
 	if jsonOutputFlag {
-		return printJson(cas)
+		return printJSON(cas)
 	}
 
 	records := make([][]string, len(cas))
@@ -64,7 +67,7 @@ func sslListAuthorities(ctx context.Context) error {
 	}
 
 	if jsonOutputFlag {
-		return printJson(cas)
+		return printJSON(cas)
 	}
 
 	records := make([][]string, len(cas))
@@ -290,12 +293,12 @@ func sslRevokeWithCertificate(ctx context.Context, certPath string) error {
 	return nil
 }
 
-func printJson(v any) error {
+func printJSON(v any) error {
 	jsonStr, err := json.Marshal(v)
 	if err != nil {
 		return err
 	}
-	_, err = fmt.Fprint(os.Stdout, string(jsonStr))
+	_, err = fmt.Fprint(out, string(jsonStr))
 	return err
 }
 
@@ -336,9 +339,8 @@ func printTable(headers []string, records [][]string) error {
 	for _, row := range records {
 		fmt.Fprintf(&b, fmtStr, convertToAny(row)...)
 	}
-	fmt.Print(b.String())
-
-	return nil
+	_, err = fmt.Fprint(out, b.String())
+	return err
 }
 
 func convertToAny[T any](vs []T) []any {
@@ -350,20 +352,23 @@ func convertToAny[T any](vs []T) []any {
 }
 
 func bytesFromPEMFile(path, pemType string) ([]byte, error) {
-	csrBytes, err := os.ReadFile(path)
+	pemBytes, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("could not read file: %s: %v", path, err)
 	}
 	var b *pem.Block
-	var csrBlock *pem.Block
-	for csrBlock == nil && len(csrBytes) > 0 {
-		b, csrBytes = pem.Decode(csrBytes)
+	var pemBlock *pem.Block
+	for pemBlock == nil && len(pemBytes) > 0 {
+		b, pemBytes = pem.Decode(pemBytes)
 		if b == nil {
 			return nil, fmt.Errorf("failed to decode PEM from file: %s: %v", path, err)
 		}
 		if b.Type == pemType {
-			csrBlock = b
+			pemBlock = b
 		}
+	}
+	if pemBlock == nil {
+		return nil, fmt.Errorf("file does not contain expected PEM block: %s", pemType)
 	}
 	return b.Bytes, nil
 }

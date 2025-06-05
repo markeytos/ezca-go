@@ -19,28 +19,6 @@ import (
 	"github.com/google/uuid"
 )
 
-type SSLAuthorityClient struct {
-	client *Client
-	ca     *SSLAuthority
-}
-
-func NewSSLAuthorityClient(client *Client, ca *SSLAuthority) (*SSLAuthorityClient, error) {
-	if client == nil {
-		return nil, errors.New("ezca: cannot create an authority with a nil client")
-	}
-	if ca == nil {
-		return nil, errors.New("ezca: cannot create an authority with a nil authority")
-	}
-
-	// TODO: check that SSL CA actually exists
-	// https://github.com/markeytos/ezca-go/issues/2
-
-	return &SSLAuthorityClient{
-		client: client,
-		ca:     ca,
-	}, nil
-}
-
 type SignOptions struct {
 	// Location source of the certificate. Defaults to "EZCA Go SDK" if not provided.
 	SourceTag string
@@ -56,44 +34,9 @@ type SignOptions struct {
 	IPAddresses    []net.IP   // Additional Subject Alternate Name IP (7)
 }
 
-func (c *SSLAuthorityClient) Sign(ctx context.Context, csr []byte, opts *SignOptions) ([]*x509.Certificate, error) {
-	req, err := c.signRequest(ctx, csr, opts)
-	if err != nil {
-		return nil, err
-	}
-
-	res := SignResponse{}
-	err = c.client.internal.DoWithTokenJSONDecodeResponse(ctx, req, &res)
-	if err != nil {
-		return nil, err
-	}
-
-	if res.NewCertificate == nil {
-		return nil, errors.New("ezca: unexpected error certificate was not returned after signing")
-	}
-	if res.Issuing == nil {
-		return nil, errors.New("ezca: unexpected error certificate issuer was not returned")
-	}
-
-	certs := make([]*x509.Certificate, 0, 3)
-	certs = append(certs, (*x509.Certificate)(res.NewCertificate))
-	certs = append(certs, (*x509.Certificate)(res.Issuing))
-	if res.Root != nil {
-		certs = append(certs, (*x509.Certificate)(res.Root))
-	}
-	return certs, nil
-}
-
-type SignRequest struct {
-	AuthorityID           uuid.UUID     `json:"CAID"`
-	TemplateID            uuid.UUID     `json:"TemplateID"`
-	CertificateRequest    rawCSR        `json:"CSR"`
-	SubjectName           string        `json:"SubjectName"`
-	SubjectAlternateNames []*san        `json:"SubjectAltNames"`
-	ValidityInDays        int           `json:"ValidityInDays"`
-	SelectedLocation      string        `json:"SelectedLocation"`
-	KeyUsages             []KeyUsage    `json:"KeyUsages"`
-	ExtendedKeyUsages     []ExtKeyUsage `json:"EKUs"`
+type SSLAuthorityClient struct {
+	client *Client
+	ca     *SSLAuthority
 }
 
 type rawCSR []byte
@@ -106,18 +49,23 @@ func (k *rawCSR) MarshalJSON() ([]byte, error) {
 	return json.Marshal(string(csrPEM))
 }
 
-type nameType int
-
-const (
-	nameTypeEmail nameType = 1
-	nameTypeDNS   nameType = 2
-	nameTypeURI   nameType = 6
-	nameTypeIP    nameType = 7
-)
-
-type san struct {
-	NameType nameType `json:"SubjectAltType"`
-	Value    string   `json:"ValueSTR"`
+func (k *rawCSR) UnmarshalJSON(jsonBytes []byte) error {
+	var csrpem string
+	err := json.Unmarshal(jsonBytes, &csrpem)
+	if err != nil {
+		return err
+	}
+	b, _ := pem.Decode([]byte(csrpem))
+	if b == nil {
+		return errors.New("invalid PEM certificate request")
+	}
+	if b.Type != "CERTIFICATE REQUEST" {
+		return errors.New("certificate request parsed is not a certificate request")
+	}
+	array := (*[]byte)(k)
+	*array = make([]byte, len(b.Bytes))
+	copy(*array, b.Bytes)
+	return nil
 }
 
 type KeyUsage string
@@ -149,12 +97,6 @@ const (
 	ExtKeyUsageMicrosoftKernelCodeSigning     ExtKeyUsage = "1.3.6.1.4.1.311.61.1.1"
 )
 
-type SignResponse struct {
-	NewCertificate *Certificate `json:"CertificatePEM,omitempty"`
-	Issuing        *Certificate `json:"IssuingCACertificate,omitempty"`
-	Root           *Certificate `json:"RootCertificate,omitempty"`
-}
-
 type Certificate x509.Certificate
 
 func (c *Certificate) UnmarshalJSON(jsonBytes []byte) error {
@@ -175,15 +117,53 @@ func (c *Certificate) UnmarshalJSON(jsonBytes []byte) error {
 	return nil
 }
 
-func (c *SSLAuthorityClient) signRequest(ctx context.Context, csr []byte, opts *SignOptions) (*http.Request, error) {
-	sr, err := c.buildSignRequest(csr, opts)
+type signResponse struct {
+	NewCertificate *Certificate `json:"CertificatePEM,omitempty"`
+	Issuing        *Certificate `json:"IssuingCACertificate,omitempty"`
+	Root           *Certificate `json:"RootCertificate,omitempty"`
+}
+
+func (c *SSLAuthorityClient) Sign(ctx context.Context, csr []byte, opts *SignOptions) ([]*x509.Certificate, error) {
+	req, err := c.signRequest(ctx, csr, opts)
 	if err != nil {
 		return nil, err
 	}
-	return c.client.newRequestWithJSONBody(ctx, http.MethodPost, sr, "/api/CA/RequestSSLCertificateV2")
+
+	res := signResponse{}
+	err = c.client.internal.DoWithTokenJSONDecodeResponse(ctx, req, &res)
+	if err != nil {
+		return nil, err
+	}
+
+	if res.NewCertificate == nil {
+		return nil, errors.New("ezca: unexpected error certificate was not returned after signing")
+	}
+	if res.Issuing == nil {
+		return nil, errors.New("ezca: unexpected error certificate issuer was not returned")
+	}
+
+	certs := make([]*x509.Certificate, 0, 3)
+	certs = append(certs, (*x509.Certificate)(res.NewCertificate))
+	certs = append(certs, (*x509.Certificate)(res.Issuing))
+	if res.Root != nil {
+		certs = append(certs, (*x509.Certificate)(res.Root))
+	}
+	return certs, nil
 }
 
-func (c *SSLAuthorityClient) buildSignRequest(csr []byte, opts *SignOptions) (*SignRequest, error) {
+type signRequest struct {
+	AuthorityID           uuid.UUID     `json:"CAID"`
+	TemplateID            uuid.UUID     `json:"TemplateID"`
+	CertificateRequest    rawCSR        `json:"CSR"`
+	SubjectName           string        `json:"SubjectName"`
+	SubjectAlternateNames []*san        `json:"SubjectAltNames"`
+	ValidityInDays        int           `json:"ValidityInDays"`
+	SelectedLocation      string        `json:"SelectedLocation"`
+	KeyUsages             []KeyUsage    `json:"KeyUsages"`
+	ExtendedKeyUsages     []ExtKeyUsage `json:"EKUs"`
+}
+
+func (c *SSLAuthorityClient) signRequest(ctx context.Context, csr []byte, opts *SignOptions) (*http.Request, error) {
 	parsedCSR, err := x509.ParseCertificateRequest(csr)
 	if err != nil {
 		return nil, err
@@ -193,7 +173,7 @@ func (c *SSLAuthorityClient) buildSignRequest(csr []byte, opts *SignOptions) (*S
 		return nil, err
 	}
 
-	sr := &SignRequest{
+	sr := &signRequest{
 		AuthorityID:        c.ca.ID,
 		TemplateID:         c.ca.TemplateID,
 		CertificateRequest: rawCSR(parsedCSR.Raw),
@@ -203,39 +183,97 @@ func (c *SSLAuthorityClient) buildSignRequest(csr []byte, opts *SignOptions) (*S
 		KeyUsages:          []KeyUsage{KeyUsageKeyEncipherment, KeyUsageDigitalSignature},
 		ExtendedKeyUsages:  []ExtKeyUsage{ExtKeyUsageServerAuth, ExtKeyUsageClientAuth},
 	}
-	if opts == nil {
-		return sr, nil
-	}
 
-	if opts.SourceTag != "" {
-		sr.SelectedLocation = opts.SourceTag
-	}
-	if opts.Duration != 0 {
-		// NOTE: new API should be able to handle any duration
-		days := int(math.Round(opts.Duration.Hours() / 24))
-		if days == 0 {
-			return nil, errors.New("ezca: duration must be in scale of days (> 24h)")
-		} else if days < 0 {
-			return nil, errors.New("ezca: duration must positive")
+	if opts != nil {
+		if opts.SourceTag != "" {
+			sr.SelectedLocation = opts.SourceTag
 		}
-		sr.ValidityInDays = days
+		if opts.Duration != 0 {
+			// NOTE: new API should be able to handle any duration
+			days := int(math.Round(opts.Duration.Hours() / 24))
+			if days == 0 {
+				return nil, errors.New("ezca: duration must be in scale of days (> 24h)")
+			} else if days < 0 {
+				return nil, errors.New("ezca: duration must positive")
+			}
+			sr.ValidityInDays = days
+		}
+		if len(opts.KeyUsages) > 0 {
+			sr.KeyUsages = opts.KeyUsages
+		}
+		if len(opts.ExtendedKeyUsages) > 0 {
+			sr.ExtendedKeyUsages = opts.ExtendedKeyUsages
+		}
+		if opts.SubjectName != "" {
+			sr.SubjectName = opts.SubjectName
+		}
+		additionalSANs, err := marshalSANs(opts.DNSNames, opts.EmailAddresses, opts.IPAddresses, opts.URIs)
+		if err != nil {
+			return nil, err
+		}
+		sr.SubjectAlternateNames = append(sr.SubjectAlternateNames, additionalSANs...)
 	}
-	if len(opts.KeyUsages) > 0 {
-		sr.KeyUsages = opts.KeyUsages
-	}
-	if len(opts.ExtendedKeyUsages) > 0 {
-		sr.ExtendedKeyUsages = opts.ExtendedKeyUsages
-	}
-	if opts.SubjectName != "" {
-		sr.SubjectName = opts.SubjectName
-	}
-	additionalSANs, err := marshalSANs(opts.DNSNames, opts.EmailAddresses, opts.IPAddresses, opts.URIs)
-	if err != nil {
-		return nil, err
-	}
-	sr.SubjectAlternateNames = append(sr.SubjectAlternateNames, additionalSANs...)
 
-	return sr, nil
+	return c.client.newRequestWithJSONBody(ctx, http.MethodPost, sr, "/api/CA/RequestSSLCertificateV2")
+}
+
+func (c *SSLAuthorityClient) Revoke(ctx context.Context, cert *x509.Certificate) error {
+	thumb := sha1.Sum(cert.Raw)
+	return c.RevokeWithThumbprint(ctx, thumb)
+}
+
+func (c *SSLAuthorityClient) RevokeWithThumbprint(ctx context.Context, thumbprint [20]byte) error {
+	req, err := c.revokeRequest(ctx, thumbprint)
+	if err != nil {
+		return err
+	}
+	_, err = c.client.internal.DoWithTokenResponseInAPIResult(ctx, req)
+	return err
+}
+
+func (c *SSLAuthorityClient) revokeRequest(ctx context.Context, thumbprint [20]byte) (*http.Request, error) {
+	return c.client.newRequestWithJSONBody(ctx, http.MethodPost,
+		&struct {
+			AuthorityID uuid.UUID `json:"CAID"`
+			TemplateID  uuid.UUID `json:"TemplateID"`
+			Thumbprint  string    `json:"Thumbprint"`
+		}{
+			AuthorityID: c.ca.ID,
+			TemplateID:  c.ca.TemplateID,
+			Thumbprint:  hex.EncodeToString(thumbprint[:]),
+		},
+		"/api/CA/RevokeCertificateV2")
+}
+
+func NewSSLAuthorityClient(client *Client, ca *SSLAuthority) (*SSLAuthorityClient, error) {
+	if client == nil {
+		return nil, errors.New("ezca: cannot create an authority with a nil client")
+	}
+	if ca == nil {
+		return nil, errors.New("ezca: cannot create an authority with a nil authority")
+	}
+
+	// TODO: check that SSL CA actually exists
+	// https://github.com/markeytos/ezca-go/issues/2
+
+	return &SSLAuthorityClient{
+		client: client,
+		ca:     ca,
+	}, nil
+}
+
+type nameType int
+
+const (
+	nameTypeEmail nameType = 1
+	nameTypeDNS   nameType = 2
+	nameTypeURI   nameType = 6
+	nameTypeIP    nameType = 7
+)
+
+type san struct {
+	NameType nameType `json:"SubjectAltType"`
+	Value    string   `json:"ValueSTR"`
 }
 
 func marshalSANs(dnsNames, emailAddresses []string, ipAddresses []net.IP, uris []*url.URL) ([]*san, error) {
@@ -289,33 +327,4 @@ func isASCII(s string) error {
 		}
 	}
 	return nil
-}
-
-func (c *SSLAuthorityClient) Revoke(ctx context.Context, cert *x509.Certificate) error {
-	thumb := sha1.Sum(cert.Raw)
-	return c.RevokeWithThumbprint(ctx, thumb)
-}
-
-func (c *SSLAuthorityClient) RevokeWithThumbprint(ctx context.Context, thumbprint [20]byte) error {
-	req, err := c.revokeRequest(ctx, thumbprint)
-	if err != nil {
-		return err
-	}
-	_, err = c.client.internal.DoWithTokenResponseInAPIResult(ctx, req)
-	return err
-}
-
-type RevokeRequest struct {
-	AuthorityID uuid.UUID `json:"CAID"`
-	TemplateID  uuid.UUID `json:"TemplateID"`
-	Thumbprint  string    `json:"Thumbprint"`
-}
-
-func (c *SSLAuthorityClient) revokeRequest(ctx context.Context, thumbprint [20]byte) (*http.Request, error) {
-	rr := &RevokeRequest{
-		AuthorityID: c.ca.ID,
-		TemplateID:  c.ca.TemplateID,
-		Thumbprint:  hex.EncodeToString(thumbprint[:]),
-	}
-	return c.client.newRequestWithJSONBody(ctx, http.MethodPost, rr, "/api/CA/RevokeCertificateV2")
 }
