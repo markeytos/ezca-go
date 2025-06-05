@@ -1,2 +1,3 @@
+github.com/markeytos/ezca-go/cmd/ezca/client.go
 github.com/markeytos/ezca-go/internal/clock/
 github.com/markeytos/ezca-go/internal/testshared/

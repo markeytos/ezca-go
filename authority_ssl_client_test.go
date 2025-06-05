@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/markeytos/ezca-go/internal/testshared"
@@ -133,6 +134,48 @@ func TestSign(t *testing.T) {
 			},
 		})
 		certs, err := c.Sign(t.Context(), csr, nil)
+		require.NoError(t, err)
+		assert.Equal(t, certs, []*x509.Certificate{leafCert, issuCert, rootCert})
+		assert.Equal(t, url, "https://test.ezca.io/api/CA/RequestSSLCertificateV2")
+	})
+
+	t.Run("options pop", func(t *testing.T) {
+		var url string
+		c := sslAuthorityClient(&testshared.MockClient{
+			DoJSONDecodeResponseFunc: func(req *http.Request, res any) error {
+				r := signRequest{}
+				d := json.NewDecoder(req.Body)
+				err := d.Decode(&r)
+				require.NoError(t, err)
+				assert.Equal(t, r, signRequest{
+					AuthorityID:           uuid.Nil,
+					TemplateID:            uuid.Nil,
+					CertificateRequest:    rawCSR(csr),
+					SubjectName:           "CN=test",
+					SubjectAlternateNames: []*san{{NameType: nameTypeEmail, Value: "test@company.com"}},
+					ValidityInDays:        10,
+					SelectedLocation:      "Some Unit Test",
+					KeyUsages:             []KeyUsage{KeyUsageNonRepudiation},
+					ExtendedKeyUsages:     []ExtKeyUsage{ExtKeyUsageCodeSigning},
+				})
+
+				url = req.URL.String()
+				sr := res.(*signResponse)
+				*sr = signResponse{
+					NewCertificate: (*Certificate)(leafCert),
+					Issuing:        (*Certificate)(issuCert),
+					Root:           (*Certificate)(rootCert),
+				}
+				return nil
+			},
+		})
+		certs, err := c.Sign(t.Context(), csr, &SignOptions{
+			SourceTag:         "Some Unit Test",
+			Duration:          time.Hour * 24 * 10,
+			KeyUsages:         []KeyUsage{KeyUsageNonRepudiation},
+			ExtendedKeyUsages: []ExtKeyUsage{ExtKeyUsageCodeSigning},
+			EmailAddresses:    []string{"test@company.com"},
+		})
 		require.NoError(t, err)
 		assert.Equal(t, certs, []*x509.Certificate{leafCert, issuCert, rootCert})
 		assert.Equal(t, url, "https://test.ezca.io/api/CA/RequestSSLCertificateV2")
