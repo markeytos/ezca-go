@@ -5,12 +5,15 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
+	"github.com/google/uuid"
+	"github.com/markeytos/ezca-go/internal/api"
 	"github.com/markeytos/ezca-go/internal/client"
 )
 
@@ -34,8 +37,20 @@ func (c *Client) ListAuthorities(ctx context.Context) ([]*Authority, error) {
 	if err != nil {
 		return nil, err
 	}
-	var cas []*Authority
-	err = c.internal.DoWithTokenJSONDecodeResponseInAPIResult(ctx, req, &cas)
+	var ias []*api.Authority
+	err = c.internal.DoWithTokenJSONDecodeResponseInAPIResult(ctx, req, &ias)
+	if err != nil {
+		return nil, err
+	}
+
+	cas := make([]*Authority, len(ias))
+	for i, ia := range ias {
+		cas[i], err = newFromInternalAuthority(ia)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	return cas, err
 }
 
@@ -44,19 +59,82 @@ func (c *Client) ListSSLAuthorities(ctx context.Context) ([]*SSLAuthority, error
 	if err != nil {
 		return nil, err
 	}
-	var cats []*AuthorityTemplate
-	err = c.internal.DoWithTokenJSONDecodeResponse(ctx, req, &cats)
+	var ats []*api.AuthorityTemplate
+	err = c.internal.DoWithTokenJSONDecodeResponse(ctx, req, &ats)
+	if err != nil {
+		return nil, err
+	}
 
-	sslCAs := make([]*SSLAuthority, len(cats))
+	as, err := c.ListAuthorities(ctx)
+	if err != nil {
+		return nil, err
+	}
+	authMap := map[uuid.UUID]*Authority{}
+	authIdx := 0
 
-	for i, cat := range cats {
-		if cat.TemplateType != TemplateTypeSSL {
+	sslCAs := make([]*SSLAuthority, len(ats))
+	for i, at := range ats {
+		if at.TemplateType != api.TemplateTypeSSL {
 			return nil, errors.New("ezca: one of the authorities fetched was not of an SSL template")
 		}
-		sslCAs[i] = (*SSLAuthority)(cat)
+
+		auth, ok := authMap[at.ID]
+		if !ok {
+			for authIdx < len(as) {
+				a := as[authIdx]
+				authIdx++
+				if a.ID == at.ID {
+					auth = a
+					break
+				}
+				authMap[a.ID] = a
+			}
+			if auth == nil {
+				auth, err = c.sslTemplateInfo(ctx, at.ID, at.TemplateID)
+				if err != nil {
+					return nil, fmt.Errorf("failed getting SSL details: %v", err)
+				}
+			}
+		}
+
+		sslCAs[i] = &SSLAuthority{
+			Authority:  auth,
+			TemplateID: at.TemplateID,
+		}
 	}
 
 	return sslCAs, err
+}
+
+func (c *Client) sslTemplateInfo(ctx context.Context, id, templateID uuid.UUID) (*Authority, error) {
+	req, err := c.sslTemplateInfoRequest(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	ats := []*api.AuthorityTemplate{}
+	err = c.internal.DoWithTokenJSONDecodeResponse(ctx, req, &ats)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, at := range ats {
+		if at.ID == id && at.TemplateID == templateID {
+			return newFromInternalAuthority(at.Authority)
+		}
+	}
+	return nil, fmt.Errorf("could not find SSL details: certificate with ID %s and template %s", id, templateID)
+}
+
+func (c *Client) sslTemplateInfoRequest(ctx context.Context, id uuid.UUID) (*http.Request, error) {
+	req, err := c.newRequest(ctx, http.MethodGet, nil, "/api/CA/GetSSLCA")
+	if err != nil {
+		return nil, err
+	}
+	q := req.URL.Query()
+	q.Add("caID", id.String())
+	req.URL.RawQuery = q.Encode()
+	return req, nil
 }
 
 func (c *Client) ListSCEPAuthorities(ctx context.Context) ([]*Authority, error) {
@@ -67,13 +145,25 @@ func (c *Client) ListIssuingAuthorities(ctx context.Context) ([]*Authority, erro
 	return c.listAuthoritiesFromAPI(ctx, "GetAvailableCertIssuingCAs")
 }
 
-func (c *Client) listAuthoritiesFromAPI(ctx context.Context, api string) ([]*Authority, error) {
-	req, err := c.listAuthoritiesRequestFromAPI(ctx, api)
+func (c *Client) listAuthoritiesFromAPI(ctx context.Context, apiEndpoint string) ([]*Authority, error) {
+	req, err := c.listAuthoritiesRequestFromAPI(ctx, apiEndpoint)
 	if err != nil {
 		return nil, err
 	}
-	var cas []*Authority
-	err = c.internal.DoWithTokenJSONDecodeResponse(ctx, req, &cas)
+	var ias []*api.Authority
+	err = c.internal.DoWithTokenJSONDecodeResponse(ctx, req, &ias)
+	if err != nil {
+		return nil, err
+	}
+
+	cas := make([]*Authority, len(ias))
+	for i, ia := range ias {
+		cas[i], err = newFromInternalAuthority(ia)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	return cas, err
 }
 

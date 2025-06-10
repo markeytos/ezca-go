@@ -14,12 +14,23 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/markeytos/ezca-go/internal/api"
 	"github.com/markeytos/ezca-go/internal/testshared"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-var testSSLAuthority = NewSSLAuthority(uuid.Nil, uuid.Nil)
+var testSSLAuthority = &SSLAuthority{
+	Authority: &Authority{
+		ID:            uuid.Nil,
+		FriendlyName:  "test SSL",
+		KeyType:       KeyTypeRSA2048,
+		HashAlgorithm: HashAlgorithmSHA256,
+		IsPublic:      false,
+		IsRoot:        true,
+	},
+	TemplateID: uuid.Nil,
+}
 
 func TestSign(t *testing.T) {
 	t.Run("invalid csr", func(t *testing.T) {
@@ -63,7 +74,7 @@ func TestSign(t *testing.T) {
 		})
 		certs, err := c.Sign(t.Context(), csr, nil)
 		assert.ErrorContains(t, err, "ezca: unexpected error certificate was not returned after signing")
-		assert.Equal(t, url, "https://test.ezca.io/api/CA/RequestSSLCertificateV2")
+		assert.Equal(t, "https://test.ezca.io/api/CA/RequestSSLCertificateV2", url)
 		assert.Empty(t, certs)
 	})
 
@@ -81,7 +92,7 @@ func TestSign(t *testing.T) {
 		})
 		certs, err := c.Sign(t.Context(), csr, nil)
 		assert.ErrorContains(t, err, "ezca: unexpected error certificate issuer was not returned")
-		assert.Equal(t, url, "https://test.ezca.io/api/CA/RequestSSLCertificateV2")
+		assert.Equal(t, "https://test.ezca.io/api/CA/RequestSSLCertificateV2", url)
 		assert.Empty(t, certs)
 	})
 
@@ -100,8 +111,8 @@ func TestSign(t *testing.T) {
 		})
 		certs, err := c.Sign(t.Context(), csr, nil)
 		require.NoError(t, err)
-		assert.Equal(t, certs, []*x509.Certificate{leafCert, issuCert})
-		assert.Equal(t, url, "https://test.ezca.io/api/CA/RequestSSLCertificateV2")
+		assert.Equal(t, []*x509.Certificate{leafCert, issuCert}, certs)
+		assert.Equal(t, "https://test.ezca.io/api/CA/RequestSSLCertificateV2", url)
 	})
 
 	t.Run("three cert chain", func(t *testing.T) {
@@ -112,7 +123,7 @@ func TestSign(t *testing.T) {
 				d := json.NewDecoder(req.Body)
 				err := d.Decode(&r)
 				require.NoError(t, err)
-				assert.Equal(t, r, signRequest{
+				assert.Equal(t, signRequest{
 					AuthorityID:        uuid.Nil,
 					TemplateID:         uuid.Nil,
 					CertificateRequest: rawCSR(csr),
@@ -121,7 +132,7 @@ func TestSign(t *testing.T) {
 					SelectedLocation:   "EZCA Go SDK",
 					KeyUsages:          []KeyUsage{KeyUsageKeyEncipherment, KeyUsageDigitalSignature},
 					ExtendedKeyUsages:  []ExtKeyUsage{ExtKeyUsageServerAuth, ExtKeyUsageClientAuth},
-				})
+				}, r)
 
 				url = req.URL.String()
 				sr := res.(*signResponse)
@@ -135,8 +146,8 @@ func TestSign(t *testing.T) {
 		})
 		certs, err := c.Sign(t.Context(), csr, nil)
 		require.NoError(t, err)
-		assert.Equal(t, certs, []*x509.Certificate{leafCert, issuCert, rootCert})
-		assert.Equal(t, url, "https://test.ezca.io/api/CA/RequestSSLCertificateV2")
+		assert.Equal(t, []*x509.Certificate{leafCert, issuCert, rootCert}, certs)
+		assert.Equal(t, "https://test.ezca.io/api/CA/RequestSSLCertificateV2", url)
 	})
 
 	t.Run("options pop", func(t *testing.T) {
@@ -147,7 +158,7 @@ func TestSign(t *testing.T) {
 				d := json.NewDecoder(req.Body)
 				err := d.Decode(&r)
 				require.NoError(t, err)
-				assert.Equal(t, r, signRequest{
+				assert.Equal(t, signRequest{
 					AuthorityID:           uuid.Nil,
 					TemplateID:            uuid.Nil,
 					CertificateRequest:    rawCSR(csr),
@@ -157,7 +168,7 @@ func TestSign(t *testing.T) {
 					SelectedLocation:      "Some Unit Test",
 					KeyUsages:             []KeyUsage{KeyUsageNonRepudiation},
 					ExtendedKeyUsages:     []ExtKeyUsage{ExtKeyUsageCodeSigning},
-				})
+				}, r)
 
 				url = req.URL.String()
 				sr := res.(*signResponse)
@@ -177,8 +188,8 @@ func TestSign(t *testing.T) {
 			EmailAddresses:    []string{"test@company.com"},
 		})
 		require.NoError(t, err)
-		assert.Equal(t, certs, []*x509.Certificate{leafCert, issuCert, rootCert})
-		assert.Equal(t, url, "https://test.ezca.io/api/CA/RequestSSLCertificateV2")
+		assert.Equal(t, []*x509.Certificate{leafCert, issuCert, rootCert}, certs)
+		assert.Equal(t, "https://test.ezca.io/api/CA/RequestSSLCertificateV2", url)
 	})
 }
 
@@ -195,7 +206,7 @@ func TestRevoke(t *testing.T) {
 	})
 	err = c.Revoke(t.Context(), leafCert)
 	require.NoError(t, err)
-	require.Equal(t, url, "https://test.ezca.io/api/CA/RevokeCertificateV2")
+	require.Equal(t, "https://test.ezca.io/api/CA/RevokeCertificateV2", url)
 }
 
 func TestRevokeWithThumbprint(t *testing.T) {
@@ -208,32 +219,43 @@ func TestRevokeWithThumbprint(t *testing.T) {
 	})
 	err := c.RevokeWithThumbprint(t.Context(), [20]byte{0})
 	require.NoError(t, err)
-	require.Equal(t, url, "https://test.ezca.io/api/CA/RevokeCertificateV2")
+	require.Equal(t, "https://test.ezca.io/api/CA/RevokeCertificateV2", url)
 }
 
 func TestNewSSLAuthorityClient(t *testing.T) {
-	bc, err := NewClient("test.ezca.io", &testshared.MockCredential{})
-	require.NoError(t, err)
-
 	t.Run("full", func(t *testing.T) {
-		c, err := NewSSLAuthorityClient(bc, testSSLAuthority)
+		var url string
+		bc := baseClient(
+			&testshared.MockClient{
+				DoJSONDecodeResponseFunc: func(req *http.Request, res any) error {
+					url = req.URL.String()
+					sr := res.(*[]*api.AuthorityTemplate)
+					*sr = make([]*api.AuthorityTemplate, 1)
+					(*sr)[0] = &api.AuthorityTemplate{
+						Authority: &api.Authority{
+							ID:            testSSLAuthority.ID,
+							FriendlyName:  testSSLAuthority.FriendlyName,
+							KeyType:       string(testSSLAuthority.KeyType),
+							HashAlgorithm: string(testSSLAuthority.HashAlgorithm),
+							Type:          api.CATypePrivate,
+							Tier:          api.CATierRoot,
+						},
+						TemplateID:   testSSLAuthority.TemplateID,
+						TemplateType: api.TemplateTypeSSL,
+					}
+					return nil
+				},
+			})
+		c, err := NewSSLAuthorityClient(t.Context(), bc, testSSLAuthority.ID, testSSLAuthority.TemplateID)
 		require.NoError(t, err)
-		assert.Equal(t, c, &SSLAuthorityClient{
-			client: bc,
-			ca:     testSSLAuthority,
-		})
-	})
-
-	t.Run("missing client", func(t *testing.T) {
-		c, err := NewSSLAuthorityClient(nil, testSSLAuthority)
-		assert.ErrorContains(t, err, "cannot create an authority with a nil client")
-		assert.Nil(t, c)
-	})
-
-	t.Run("missing ca", func(t *testing.T) {
-		c, err := NewSSLAuthorityClient(bc, nil)
-		assert.ErrorContains(t, err, "cannot create an authority with a nil authority")
-		assert.Nil(t, c)
+		assert.Equal(t, &SSLAuthorityClient{
+			Authority: testSSLAuthority,
+			client:    bc,
+			info: &SSLAuthorityInfo{
+				SSLAuthority: testSSLAuthority,
+			},
+		}, c)
+		assert.Equal(t, "https://test.ezca.io/api/CA/GetSSLCA?caID=00000000-0000-0000-0000-000000000000", url)
 	})
 }
 
@@ -292,7 +314,7 @@ func TestMarshalSANs(t *testing.T) {
 			sans, err := marshalSANs(v.dnsNames, v.emailAddresses, v.ipAddresses, v.uris)
 			if v.err == "" && len(v.SANs) > 0 {
 				require.NoError(t, err)
-				assert.Equal(t, sans, v.SANs)
+				assert.Equal(t, v.SANs, sans)
 			} else if v.err != "" {
 				assert.ErrorContains(t, err, v.err)
 				assert.Empty(t, sans)
@@ -315,11 +337,18 @@ func TestIsASCII(t *testing.T) {
 
 func sslAuthorityClient(internalClient *testshared.MockClient) *SSLAuthorityClient {
 	return &SSLAuthorityClient{
+		Authority: testSSLAuthority,
 		client: &Client{
 			internal:    internalClient,
 			ezcaBaseURL: testURL,
 		},
-		ca: NewSSLAuthority(uuid.Nil, uuid.Nil),
+	}
+}
+
+func baseClient(internalClient *testshared.MockClient) *Client {
+	return &Client{
+		internal:    internalClient,
+		ezcaBaseURL: testURL,
 	}
 }
 
