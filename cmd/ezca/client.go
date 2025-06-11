@@ -14,6 +14,7 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
@@ -48,9 +49,19 @@ func listAuthorities(ctx context.Context) error {
 
 	records := make([][]string, len(cas))
 	for i, ca := range cas {
-		records[i] = []string{ca.ID.String(), ca.FriendlyName}
+		records[i] = []string{
+			ca.ID.String(),
+			ca.FriendlyName,
+			strconv.FormatBool(ca.IsPublic),
+			strconv.FormatBool(ca.IsRoot),
+		}
 	}
-	return printTable([]string{"Authority ID", "Friendly Name"}, records)
+	return printTable([]string{
+		"Authority ID",
+		"Friendly Name",
+		"Is Public",
+		"Is Root",
+	}, records)
 }
 
 func sslListAuthorities(ctx context.Context) error {
@@ -70,12 +81,24 @@ func sslListAuthorities(ctx context.Context) error {
 
 	records := make([][]string, len(cas))
 	for i, ca := range cas {
-		records[i] = []string{ca.ID.String(), ca.TemplateID.String(), ca.FriendlyName}
+		records[i] = []string{
+			ca.ID.String(),
+			ca.TemplateID.String(),
+			ca.FriendlyName,
+			strconv.FormatBool(ca.IsPublic),
+			strconv.FormatBool(ca.IsRoot),
+		}
 	}
-	return printTable([]string{"Authority ID", "Template ID", "Friendly Name"}, records)
+	return printTable([]string{
+		"Authority ID",
+		"Template ID",
+		"Friendly Name",
+		"Is Public",
+		"Is Root",
+	}, records)
 }
 
-func defaultSSLAuthorityClient() (*ezca.SSLAuthorityClient, error) {
+func defaultSSLAuthorityClient(ctx context.Context) (*ezca.SSLAuthorityClient, error) {
 	client, err := defaultClient()
 	if err != nil {
 		return nil, err
@@ -88,7 +111,7 @@ func defaultSSLAuthorityClient() (*ezca.SSLAuthorityClient, error) {
 	if err != nil {
 		return nil, fmt.Errorf("invalid authority ID: must be a UUID: %s", authorityIDFlag)
 	}
-	return ezca.NewSSLAuthorityClient(client, ezca.NewSSLAuthority(caid, temID))
+	return ezca.NewSSLAuthorityClient(ctx, client, caid, temID)
 }
 
 func sslGenerateCertifcate(ctx context.Context) (err error) {
@@ -153,7 +176,7 @@ func sslGenerateCertifcate(ctx context.Context) (err error) {
 	}
 	defer func() {
 		ferr := f.Close()
-		if err == nil {
+		if err == nil && ferr != nil {
 			err = fmt.Errorf("file close error: %s: %v", outputFileFlag, ferr)
 		}
 	}()
@@ -193,7 +216,7 @@ func sslSign(ctx context.Context, csrPath string) (err error) {
 	}
 	defer func() {
 		ferr := f.Close()
-		if err == nil {
+		if err == nil && ferr != nil {
 			err = fmt.Errorf("file close error: %s: %v", outputFileFlag, ferr)
 		}
 	}()
@@ -206,7 +229,7 @@ func sslSign(ctx context.Context, csrPath string) (err error) {
 }
 
 func commonSSLSignCSR(ctx context.Context, csr []byte) (*x509.Certificate, error) {
-	client, err := defaultSSLAuthorityClient()
+	client, err := defaultSSLAuthorityClient(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -256,7 +279,7 @@ func sslRevokeWithThumbprint(ctx context.Context, thumbprintStr string) error {
 		return errors.New("thumbprint must be 20 bytes (40 hex characters)")
 	}
 
-	client, err := defaultSSLAuthorityClient()
+	client, err := defaultSSLAuthorityClient(ctx)
 	if err != nil {
 		return err
 	}
@@ -279,7 +302,7 @@ func sslRevokeWithCertificate(ctx context.Context, certPath string) error {
 		return fmt.Errorf("invalid certificate: %s: %v", certPath, err)
 	}
 
-	client, err := defaultSSLAuthorityClient()
+	client, err := defaultSSLAuthorityClient(ctx)
 	if err != nil {
 		return err
 	}

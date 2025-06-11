@@ -2,10 +2,11 @@ package ezca
 
 import (
 	"net/http"
-	"os"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/markeytos/ezca-go/internal/api"
 	"github.com/markeytos/ezca-go/internal/client"
 	"github.com/markeytos/ezca-go/internal/testshared"
 	"github.com/stretchr/testify/assert"
@@ -19,10 +20,14 @@ var (
 		{
 			ID:           uuid.Nil,
 			FriendlyName: "First",
+			IsPublic:     true,
+			IsRoot:       true,
 		},
 		{
-			ID:           uuid.Nil,
+			ID:           uuid.Max,
 			FriendlyName: "Second",
+			IsPublic:     false,
+			IsRoot:       false,
 		},
 	}
 
@@ -31,112 +36,223 @@ var (
 			Authority: &Authority{
 				ID:           uuid.Nil,
 				FriendlyName: "First",
+				IsPublic:     true,
+				IsRoot:       true,
 			},
-			Template: &Template{
-				TemplateType: TemplateTypeSSL,
-				TemplateID:   uuid.Max,
-			},
+			TemplateID: uuid.Max,
 		},
 		{
 			Authority: &Authority{
-				ID:           uuid.Nil,
+				ID:           uuid.Max,
 				FriendlyName: "Second",
+				IsPublic:     false,
+				IsRoot:       false,
 			},
-			Template: &Template{
-				TemplateType: TemplateTypeSSL,
-				TemplateID:   uuid.Max,
-			},
+			TemplateID: uuid.Nil,
 		},
 	}
-	testSSLAuthoritiesBase []*AuthorityTemplate
-)
 
-func TestMain(m *testing.M) {
-	testSSLAuthoritiesBase = make([]*AuthorityTemplate, len(testSSLAuthorities))
-	for i, ssl := range testSSLAuthorities {
-		testSSLAuthoritiesBase[i] = (*AuthorityTemplate)(ssl)
+	testInternalAuthorities = []*api.Authority{
+		{
+			ID:           uuid.Nil,
+			FriendlyName: "First",
+			Type:         api.CATypePublic,
+			Tier:         api.CATierRoot,
+		},
+		{
+			ID:           uuid.Max,
+			FriendlyName: "Second",
+			Type:         api.CATypePrivate,
+			Tier:         api.CATierSubordinate,
+		},
 	}
-	os.Exit(m.Run())
-}
+
+	testInternalAuthorityTemplate = []*api.AuthorityTemplate{
+		{
+			Authority: &api.Authority{
+				ID:           uuid.Nil,
+				FriendlyName: "First",
+			},
+			TemplateID:   uuid.Max,
+			TemplateType: api.TemplateTypeSSL,
+		},
+		{
+			Authority: &api.Authority{
+				ID:           uuid.Max,
+				FriendlyName: "Second",
+			},
+			TemplateID:   uuid.Nil,
+			TemplateType: api.TemplateTypeSSL,
+		},
+	}
+)
 
 func TestListAuthorities(t *testing.T) {
 	var url string
 	c := &Client{
 		internal: &testshared.MockClient{
-			DoJSONDecodeResponseInAPIResultFunc: func(req *http.Request, res any) error {
-				url = req.URL.String()
-				a := res.(*[]*Authority)
-				*a = make([]*Authority, len(testAuthorities))
-				copy(*a, testAuthorities)
-				return nil
-			},
+			DoJSONDecodeResponseInAPIResultFunc: copyInternalAuthority(&url),
 		},
 		ezcaBaseURL: testURL,
 	}
 	authorities, err := c.ListAuthorities(t.Context())
 	require.NoError(t, err)
-	assert.Equal(t, authorities, testAuthorities)
-	assert.Equal(t, url, "https://test.ezca.io/api/CA/GetMyCAs")
+	assert.Equal(t, testAuthorities, authorities)
+	assert.Equal(t, "https://test.ezca.io/api/CA/GetMyCAs", url)
 }
 
 func TestListSSLAuthorities(t *testing.T) {
-	var url string
-	c := &Client{
-		internal: &testshared.MockClient{
-			DoJSONDecodeResponseFunc: func(req *http.Request, res any) error {
-				url = req.URL.String()
-				a := res.(*[]*AuthorityTemplate)
-				*a = make([]*AuthorityTemplate, len(testSSLAuthoritiesBase))
-				copy(*a, testSSLAuthoritiesBase)
-				return nil
+	t.Run("simple list", func(t *testing.T) {
+		var urlA, urlB string
+		c := &Client{
+			internal: &testshared.MockClient{
+				DoJSONDecodeResponseFunc: func(req *http.Request, res any) error {
+					urlA = req.URL.String()
+					a := res.(*[]*api.AuthorityTemplate)
+					*a = make([]*api.AuthorityTemplate, len(testInternalAuthorityTemplate))
+					copy(*a, testInternalAuthorityTemplate)
+					return nil
+				},
+				DoJSONDecodeResponseInAPIResultFunc: copyInternalAuthority(&urlB),
 			},
-		},
-		ezcaBaseURL: testURL,
-	}
-	authorities, err := c.ListSSLAuthorities(t.Context())
-	require.NoError(t, err)
-	assert.Equal(t, authorities, testSSLAuthorities)
-	assert.Equal(t, url, "https://test.ezca.io/api/CA/GetAvailableSSLCAs")
+			ezcaBaseURL: testURL,
+		}
+		authorities, err := c.ListSSLAuthorities(t.Context())
+		require.NoError(t, err)
+		assert.Equal(t, testSSLAuthorities, authorities)
+		assert.Equal(t, "https://test.ezca.io/api/CA/GetAvailableSSLCAs", urlA)
+		assert.Equal(t, "https://test.ezca.io/api/CA/GetMyCAs", urlB)
+	})
+
+	t.Run("out of subscription list", func(t *testing.T) {
+		var checkUUID uuid.UUID
+		var urlA, urlB, urlC string
+		c := &Client{
+			internal: &testshared.MockClient{
+				DoJSONDecodeResponseFunc: func(req *http.Request, res any) error {
+					path := req.URL.Path
+
+					if strings.Contains(path, "GetAvailableSSLCAs") {
+						urlA = req.URL.String()
+						a := res.(*[]*api.AuthorityTemplate)
+						*a = make([]*api.AuthorityTemplate, 3)
+						copy(*a, []*api.AuthorityTemplate{
+							{
+								Authority: &api.Authority{
+									ID:           uuid.Nil,
+									FriendlyName: "First",
+								},
+								TemplateID:   uuid.Max,
+								TemplateType: api.TemplateTypeSSL,
+							},
+							{
+								Authority: &api.Authority{
+									ID:           uuid.Max,
+									FriendlyName: "Second",
+								},
+								TemplateID:   uuid.Nil,
+								TemplateType: api.TemplateTypeSSL,
+							},
+							{
+								Authority: &api.Authority{
+									ID:           uuid.Max,
+									FriendlyName: "Third",
+								},
+								TemplateID:   uuid.Max,
+								TemplateType: api.TemplateTypeSSL,
+							},
+						})
+					} else if strings.Contains(path, "GetSSLCA") {
+						urlB = req.URL.String()
+						checkUUID, _ = uuid.Parse(req.URL.Query().Get("caID"))
+						a := res.(*[]*api.AuthorityTemplate)
+						*a = make([]*api.AuthorityTemplate, 1)
+						copy(*a, []*api.AuthorityTemplate{
+							{
+								Authority: &api.Authority{
+									ID:           uuid.Max,
+									FriendlyName: "Third",
+									Type:         api.CATypePrivate,
+									Tier:         api.CATierRoot,
+								},
+								TemplateID:   uuid.Max,
+								TemplateType: api.TemplateTypeSSL,
+							},
+						})
+					} else {
+						t.Errorf("unexpected url: %s", req.URL.String())
+					}
+
+					return nil
+				},
+				DoJSONDecodeResponseInAPIResultFunc: copyInternalAuthority(&urlC),
+			},
+			ezcaBaseURL: testURL,
+		}
+		authorities, err := c.ListSSLAuthorities(t.Context())
+		require.NoError(t, err)
+		assert.Equal(t, []*SSLAuthority{
+			{
+				Authority: &Authority{
+					ID:           uuid.Nil,
+					FriendlyName: "First",
+					IsPublic:     true,
+					IsRoot:       true,
+				},
+				TemplateID: uuid.Max,
+			},
+			{
+				Authority: &Authority{
+					ID:           uuid.Max,
+					FriendlyName: "Second",
+					IsPublic:     false,
+					IsRoot:       false,
+				},
+				TemplateID: uuid.Nil,
+			},
+			{
+				Authority: &Authority{
+					ID:           uuid.Max,
+					FriendlyName: "Third",
+					IsPublic:     false,
+					IsRoot:       true,
+				},
+				TemplateID: uuid.Max,
+			},
+		}, authorities)
+		assert.Equal(t, uuid.Max, checkUUID)
+		assert.Equal(t, "https://test.ezca.io/api/CA/GetAvailableSSLCAs", urlA)
+		assert.Equal(t, "https://test.ezca.io/api/CA/GetSSLCA?caID=ffffffff-ffff-ffff-ffff-ffffffffffff", urlB)
+		assert.Equal(t, "https://test.ezca.io/api/CA/GetMyCAs", urlC)
+	})
 }
 
 func TestListSCEPAuthorities(t *testing.T) {
 	var url string
 	c := &Client{
 		internal: &testshared.MockClient{
-			DoJSONDecodeResponseFunc: func(req *http.Request, res any) error {
-				url = req.URL.String()
-				a := res.(*[]*Authority)
-				*a = make([]*Authority, len(testAuthorities))
-				copy(*a, testAuthorities)
-				return nil
-			},
+			DoJSONDecodeResponseFunc: copyInternalAuthority(&url),
 		},
 		ezcaBaseURL: testURL,
 	}
 	authorities, err := c.ListSCEPAuthorities(t.Context())
 	require.NoError(t, err)
-	assert.Equal(t, authorities, testAuthorities)
-	assert.Equal(t, url, "https://test.ezca.io/api/CA/GetAvailableScepCAs")
+	assert.Equal(t, testAuthorities, authorities)
+	assert.Equal(t, "https://test.ezca.io/api/CA/GetAvailableScepCAs", url)
 }
 
 func TestListIssuingAuthorities(t *testing.T) {
 	var url string
 	c := &Client{
 		internal: &testshared.MockClient{
-			DoJSONDecodeResponseFunc: func(req *http.Request, res any) error {
-				url = req.URL.String()
-				a := res.(*[]*Authority)
-				*a = make([]*Authority, len(testAuthorities))
-				copy(*a, testAuthorities)
-				return nil
-			},
+			DoJSONDecodeResponseFunc: copyInternalAuthority(&url),
 		},
 		ezcaBaseURL: testURL,
 	}
 	authorities, err := c.ListIssuingAuthorities(t.Context())
 	require.NoError(t, err)
-	assert.Equal(t, authorities, testAuthorities)
-	assert.Equal(t, url, "https://test.ezca.io/api/CA/GetAvailableCertIssuingCAs")
+	assert.Equal(t, testAuthorities, authorities)
+	assert.Equal(t, "https://test.ezca.io/api/CA/GetAvailableCertIssuingCAs", url)
 }
 
 func TestNewClient(t *testing.T) {
@@ -150,10 +266,10 @@ func TestNewClient(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			c, err := NewClient(url, &testshared.MockCredential{})
 			assert.NoError(t, err)
-			assert.Equal(t, c, &Client{
+			assert.Equal(t, &Client{
 				internal:    client.NewClient(&testshared.MockCredential{}, ezcaDefaultTokenRequestOptions),
 				ezcaBaseURL: "https://portal.ezca.io",
-			})
+			}, c)
 		})
 	}
 
@@ -175,5 +291,15 @@ func TestNewClient(t *testing.T) {
 			assert.ErrorContains(t, err, v.compareStr)
 			assert.Nil(t, c)
 		})
+	}
+}
+
+func copyInternalAuthority(url *string) func(req *http.Request, res any) error {
+	return func(req *http.Request, res any) error {
+		*url = req.URL.String()
+		a := res.(*[]*api.Authority)
+		*a = make([]*api.Authority, len(testInternalAuthorities))
+		copy(*a, testInternalAuthorities)
+		return nil
 	}
 }

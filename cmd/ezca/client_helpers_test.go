@@ -37,7 +37,7 @@ func TestPrintJSON(t *testing.T) {
 			out = &b
 			err := printJSON(v.value)
 			require.NoError(t, err)
-			assert.Equal(t, b.String(), v.output)
+			assert.Equal(t, v.output, b.String())
 		})
 	}
 }
@@ -69,7 +69,7 @@ value 1b	value 2b
 			out = &b
 			err := printTable(v.headers, v.records)
 			require.NoError(t, err)
-			assert.Equal(t, b.String(), v.output)
+			assert.Equal(t, v.output, b.String())
 		})
 	}
 
@@ -108,15 +108,15 @@ func TestBytesFromPEMFile(t *testing.T) {
 
 	pemBytes, err := bytesFromPEMFile(tempFile, "CONTENT A")
 	require.NoError(t, err)
-	assert.Equal(t, pemBytes, pemContentA)
+	assert.Equal(t, pemContentA, pemBytes)
 
 	pemBytes, err = bytesFromPEMFile(tempFile, "CONTENT B")
 	require.NoError(t, err)
-	assert.Equal(t, pemBytes, pemContentB)
+	assert.Equal(t, pemContentB, pemBytes)
 
 	pemBytes, err = bytesFromPEMFile(tempFile, "CONTENT C")
 	require.NoError(t, err)
-	assert.Equal(t, pemBytes, pemContentC)
+	assert.Equal(t, pemContentC, pemBytes)
 
 	pemBytes, err = bytesFromPEMFile(tempFile, "CONTENT E")
 	require.ErrorContains(t, err, "file does not contain expected PEM block")

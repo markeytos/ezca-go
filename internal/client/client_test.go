@@ -93,12 +93,12 @@ type jsonStruct struct {
 func TestNewClient(t *testing.T) {
 	c := NewClient(&credentialNewToken, testTokenRequestOptions)
 	require.NotNil(t, c)
-	assert.Equal(t, c, &client{
+	assert.Equal(t, &client{
 		clock:        clock.RealClock{},
 		client:       http.DefaultClient,
 		credential:   &credentialNewToken,
 		tokenOptions: testTokenRequestOptions,
-	})
+	}, c)
 }
 
 func TestDoWithToken(t *testing.T) {
@@ -135,7 +135,7 @@ func TestDoWithToken(t *testing.T) {
 			res, err := c.DoWithToken(t.Context(), testRequest())
 			require.NoError(t, err)
 			require.NotNil(t, res)
-			assert.Equal(t, req.Header["Authorization"], []string{"Bearer " + testTokenNew.Token})
+			assert.Equal(t, http.Header{"Authorization": []string{"Bearer " + testTokenNew.Token}}, req.Header)
 		})
 	}
 
@@ -183,8 +183,8 @@ func TestDoWithTokenJSONDecodeResponse(t *testing.T) {
 		)
 		err := c.DoWithTokenJSONDecodeResponse(t.Context(), testRequest(), &s)
 		require.NoError(t, err)
-		assert.Equal(t, s, testJSON)
-		assert.Equal(t, req.Header["Authorization"], []string{"Bearer " + testTokenNew.Token})
+		assert.Equal(t, testJSON, s)
+		assert.Equal(t, http.Header{"Authorization": []string{"Bearer " + testTokenNew.Token}}, req.Header)
 	})
 
 	for name, v := range map[string]*struct {
@@ -212,8 +212,8 @@ func TestDoWithTokenJSONDecodeResponse(t *testing.T) {
 			)
 			err := c.DoWithTokenJSONDecodeResponse(t.Context(), testRequest(), &s)
 			assert.ErrorContains(t, err, v.CompareStr)
-			assert.Equal(t, s, jsonStruct{})
-			assert.Equal(t, req.Header["Authorization"], []string{"Bearer " + testTokenNew.Token})
+			assert.Equal(t, jsonStruct{}, s)
+			assert.Equal(t, http.Header{"Authorization": []string{"Bearer " + testTokenNew.Token}}, req.Header)
 		})
 	}
 
@@ -227,7 +227,7 @@ func TestDoWithTokenJSONDecodeResponse(t *testing.T) {
 		)
 		err := c.DoWithTokenJSONDecodeResponse(t.Context(), testRequest(), &s)
 		require.ErrorIs(t, err, errBadClient)
-		assert.Equal(t, s, jsonStruct{})
+		assert.Equal(t, jsonStruct{}, s)
 	})
 
 	for name, token := range map[string]azcore.AccessToken{
@@ -260,7 +260,7 @@ func TestDoJSONDecodeResponse(t *testing.T) {
 		)
 		err := c.DoJSONDecodeResponse(nil, &s)
 		require.NoError(t, err)
-		assert.Equal(t, s, testJSON)
+		assert.Equal(t, testJSON, s)
 	})
 
 	for name, v := range map[string]*struct {
@@ -287,7 +287,7 @@ func TestDoJSONDecodeResponse(t *testing.T) {
 			)
 			err := c.DoJSONDecodeResponse(nil, &s)
 			assert.ErrorContains(t, err, v.CompareStr)
-			assert.Equal(t, s, jsonStruct{})
+			assert.Equal(t, jsonStruct{}, s)
 		})
 	}
 
@@ -301,7 +301,7 @@ func TestDoJSONDecodeResponse(t *testing.T) {
 		)
 		err := c.DoJSONDecodeResponse(nil, &s)
 		require.ErrorIs(t, err, errBadClient)
-		assert.Equal(t, s, jsonStruct{})
+		assert.Equal(t, jsonStruct{}, s)
 	})
 }
 
@@ -318,8 +318,8 @@ func TestDoWithTokenJSONDecodeResponseInAPIResult(t *testing.T) {
 		)
 		err := c.DoWithTokenJSONDecodeResponseInAPIResult(t.Context(), testRequest(), &s)
 		require.NoError(t, err)
-		assert.Equal(t, s, testJSON)
-		assert.Equal(t, req.Header["Authorization"], []string{"Bearer " + testToken.Token})
+		assert.Equal(t, testJSON, s)
+		assert.Equal(t, http.Header{"Authorization": []string{"Bearer " + testToken.Token}}, req.Header)
 	})
 
 	for name, v := range map[string]*struct {
@@ -347,8 +347,8 @@ func TestDoWithTokenJSONDecodeResponseInAPIResult(t *testing.T) {
 			)
 			err := c.DoWithTokenJSONDecodeResponseInAPIResult(t.Context(), testRequest(), &s)
 			assert.ErrorContains(t, err, v.CompareStr)
-			assert.Equal(t, s, jsonStruct{})
-			assert.Equal(t, req.Header["Authorization"], []string{"Bearer " + testToken.Token})
+			assert.Equal(t, jsonStruct{}, s)
+			assert.Equal(t, http.Header{"Authorization": []string{"Bearer " + testToken.Token}}, req.Header)
 		})
 	}
 
@@ -362,7 +362,7 @@ func TestDoWithTokenJSONDecodeResponseInAPIResult(t *testing.T) {
 		)
 		err := c.DoWithTokenJSONDecodeResponseInAPIResult(t.Context(), testRequest(), &s)
 		require.ErrorIs(t, err, errBadClient)
-		assert.Equal(t, s, jsonStruct{})
+		assert.Equal(t, jsonStruct{}, s)
 	})
 
 	for name, token := range map[string]azcore.AccessToken{
@@ -380,7 +380,7 @@ func TestDoWithTokenJSONDecodeResponseInAPIResult(t *testing.T) {
 			)
 			err := c.DoWithTokenJSONDecodeResponseInAPIResult(t.Context(), nil, &s)
 			require.ErrorIs(t, err, errNoCred)
-			assert.Equal(t, s, jsonStruct{})
+			assert.Equal(t, jsonStruct{}, s)
 		})
 	}
 }
@@ -397,8 +397,8 @@ func TestDoWithTokenResponseInAPIResult(t *testing.T) {
 		)
 		msg, err := c.DoWithTokenResponseInAPIResult(t.Context(), testRequest())
 		require.NoError(t, err)
-		require.Equal(t, msg, "contents")
-		assert.Equal(t, req.Header["Authorization"], []string{"Bearer " + testToken.Token})
+		require.Equal(t, "contents", msg)
+		assert.Equal(t, http.Header{"Authorization": []string{"Bearer " + testToken.Token}}, req.Header)
 	})
 
 	for name, v := range map[string]*struct {
@@ -426,7 +426,7 @@ func TestDoWithTokenResponseInAPIResult(t *testing.T) {
 			msg, err := c.DoWithTokenResponseInAPIResult(t.Context(), testRequest())
 			assert.ErrorContains(t, err, v.CompareStr)
 			assert.Empty(t, msg)
-			assert.Equal(t, req.Header["Authorization"], []string{"Bearer " + testToken.Token})
+			assert.Equal(t, http.Header{"Authorization": []string{"Bearer " + testToken.Token}}, req.Header)
 		})
 	}
 
@@ -473,7 +473,7 @@ func TestDoJSONDecodeResponseInAPIResult(t *testing.T) {
 		)
 		err := c.DoJSONDecodeResponseInAPIResult(nil, &s)
 		require.NoError(t, err)
-		assert.Equal(t, s, testJSON)
+		assert.Equal(t, testJSON, s)
 	})
 
 	for name, v := range map[string]*struct {
@@ -500,7 +500,7 @@ func TestDoJSONDecodeResponseInAPIResult(t *testing.T) {
 			)
 			err := c.DoJSONDecodeResponseInAPIResult(nil, &s)
 			assert.ErrorContains(t, err, v.CompareStr)
-			assert.Equal(t, s, jsonStruct{})
+			assert.Equal(t, jsonStruct{}, s)
 		})
 	}
 }
@@ -516,7 +516,7 @@ func TestDoResponseInAPIResult(t *testing.T) {
 		)
 		msg, err := c.DoResponseInAPIResult(nil)
 		require.NoError(t, err)
-		require.Equal(t, msg, "contents")
+		require.Equal(t, "contents", msg)
 	})
 
 	for name, v := range map[string]*struct {
@@ -573,7 +573,7 @@ func TestGetToken(t *testing.T) {
 			)
 			token, err := c.getToken(t.Context())
 			require.NoError(t, err)
-			assert.Equal(t, token, testTokenNew.Token)
+			assert.Equal(t, testTokenNew.Token, token)
 		})
 	}
 
@@ -600,7 +600,7 @@ func TestDecodeReaderJson(t *testing.T) {
 	s := jsonStruct{}
 	err := decodeReaderJson(r, &s)
 	require.NoError(t, err)
-	assert.Equal(t, s, testJSON)
+	assert.Equal(t, testJSON, s)
 }
 
 func TestDecodeDataJson(t *testing.T) {
@@ -608,21 +608,21 @@ func TestDecodeDataJson(t *testing.T) {
 		s := jsonStruct{}
 		err := decodeDataJson([]byte(testJSONStr), &s)
 		require.NoError(t, err)
-		assert.Equal(t, s, testJSON)
+		assert.Equal(t, testJSON, s)
 	})
 
 	t.Run("error string", func(t *testing.T) {
 		s := jsonStruct{}
 		err := decodeDataJson([]byte(testErrStr), &s)
 		assert.ErrorContains(t, err, "api error: error msg")
-		assert.Equal(t, s, jsonStruct{})
+		assert.Equal(t, jsonStruct{}, s)
 	})
 
 	t.Run("invalid JSON", func(t *testing.T) {
 		s := jsonStruct{}
 		err := decodeDataJson([]byte(testInvalidJSONStr), &s)
 		assert.ErrorContains(t, err, "invalid character '}'")
-		assert.Equal(t, s, jsonStruct{})
+		assert.Equal(t, jsonStruct{}, s)
 	})
 }
 

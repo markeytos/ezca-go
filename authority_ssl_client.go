@@ -35,8 +35,33 @@ type SignOptions struct {
 }
 
 type SSLAuthorityClient struct {
-	client *Client
-	ca     *SSLAuthority
+	Authority *SSLAuthority
+	client    *Client
+	info      *SSLAuthorityInfo
+}
+
+type SSLAuthorityInfo struct {
+	*SSLAuthority
+
+	// TODO: fill this out
+	// SubjectName     string
+	// IssuerAuthority string
+}
+
+func (i *SSLAuthorityInfo) Clone() *SSLAuthorityInfo {
+	return &SSLAuthorityInfo{
+		SSLAuthority: &SSLAuthority{
+			Authority: &Authority{
+				ID:            i.ID,
+				FriendlyName:  i.FriendlyName,
+				KeyType:       i.KeyType,
+				HashAlgorithm: i.HashAlgorithm,
+				IsPublic:      i.IsPublic,
+				IsRoot:        i.IsRoot,
+			},
+			TemplateID: i.TemplateID,
+		},
+	}
 }
 
 type rawCSR []byte
@@ -117,6 +142,39 @@ func (c *Certificate) UnmarshalJSON(jsonBytes []byte) error {
 	return nil
 }
 
+func (c *SSLAuthorityClient) Info(ctx context.Context) (*SSLAuthorityInfo, error) {
+	if c.info == nil ||
+		c.info.ID != c.Authority.ID ||
+		c.info.TemplateID != c.Authority.TemplateID {
+		info, err := c.client.sslTemplateInfo(ctx, c.Authority.ID, c.Authority.TemplateID)
+		if err != nil {
+			return nil, err
+		}
+
+		c.Authority.FriendlyName = info.FriendlyName
+		c.Authority.KeyType = info.KeyType
+		c.Authority.HashAlgorithm = info.HashAlgorithm
+		c.Authority.IsPublic = info.IsPublic
+		c.Authority.IsRoot = info.IsRoot
+
+		c.info = &SSLAuthorityInfo{
+			SSLAuthority: &SSLAuthority{
+				Authority: &Authority{
+					ID:            c.Authority.ID,
+					FriendlyName:  c.Authority.FriendlyName,
+					KeyType:       c.Authority.KeyType,
+					HashAlgorithm: c.Authority.HashAlgorithm,
+					IsPublic:      c.Authority.IsPublic,
+					IsRoot:        c.Authority.IsRoot,
+				},
+				TemplateID: c.Authority.TemplateID,
+			},
+		}
+	}
+
+	return c.info.Clone(), nil
+}
+
 type signResponse struct {
 	NewCertificate *Certificate `json:"CertificatePEM,omitempty"`
 	Issuing        *Certificate `json:"IssuingCACertificate,omitempty"`
@@ -174,8 +232,8 @@ func (c *SSLAuthorityClient) signRequest(ctx context.Context, csr []byte, opts *
 	}
 
 	sr := &signRequest{
-		AuthorityID:        c.ca.ID,
-		TemplateID:         c.ca.TemplateID,
+		AuthorityID:        c.Authority.ID,
+		TemplateID:         c.Authority.TemplateID,
 		CertificateRequest: rawCSR(parsedCSR.Raw),
 		SubjectName:        parsedCSR.Subject.String(),
 		ValidityInDays:     90,
@@ -238,28 +296,33 @@ func (c *SSLAuthorityClient) revokeRequest(ctx context.Context, thumbprint [20]b
 			TemplateID  uuid.UUID `json:"TemplateID"`
 			Thumbprint  string    `json:"Thumbprint"`
 		}{
-			AuthorityID: c.ca.ID,
-			TemplateID:  c.ca.TemplateID,
+			AuthorityID: c.Authority.ID,
+			TemplateID:  c.Authority.TemplateID,
 			Thumbprint:  hex.EncodeToString(thumbprint[:]),
 		},
 		"/api/CA/RevokeCertificateV2")
 }
 
-func NewSSLAuthorityClient(client *Client, ca *SSLAuthority) (*SSLAuthorityClient, error) {
+func NewSSLAuthorityClient(ctx context.Context, client *Client, id, templateID uuid.UUID) (*SSLAuthorityClient, error) {
 	if client == nil {
 		return nil, errors.New("ezca: cannot create an authority with a nil client")
 	}
-	if ca == nil {
-		return nil, errors.New("ezca: cannot create an authority with a nil authority")
+
+	c := &SSLAuthorityClient{
+		Authority: &SSLAuthority{
+			Authority: &Authority{
+				ID: id,
+			},
+			TemplateID: templateID,
+		},
+		client: client,
+	}
+	_, err := c.Info(ctx)
+	if err != nil {
+		return nil, err
 	}
 
-	// TODO: check that SSL CA actually exists
-	// https://github.com/markeytos/ezca-go/issues/2
-
-	return &SSLAuthorityClient{
-		client: client,
-		ca:     ca,
-	}, nil
+	return c, nil
 }
 
 type nameType int
