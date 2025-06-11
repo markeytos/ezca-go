@@ -12,6 +12,7 @@ permissions:
   pull-requests: read
 jobs:
   lint:
+    name: Lint
     runs-on: ubuntu-latest
     steps:
       - name: Check out code
@@ -19,6 +20,7 @@ jobs:
       - name: Lint source
         uses: golangci/golangci-lint-action@v8.0.0
   fmt:
+    name: Format
     runs-on: ubuntu-latest
     steps:
       - name: Set up Go
@@ -28,6 +30,7 @@ jobs:
       - name: Format source
         run: go fmt ./...
   vet:
+    name: Vet
     runs-on: ubuntu-latest
     steps:
       - name: Set up Go
@@ -37,6 +40,7 @@ jobs:
       - name: Vet source
         run: go vet ./...
   test:
+    name: Test and Coveralls
     runs-on: ubuntu-latest
     steps:
       - name: Set up Go
@@ -47,9 +51,9 @@ jobs:
         run: go test -race -covermode=atomic -coverprofile=covprofile ./...
       - name: Apply `.test_cover_ignore`
         run: grep -vFf .test_cover_ignore covprofile > tmp && mv tmp covprofile
-      - name: Install goveralls
-        run: go install github.com/mattn/goveralls@latest
-      - name: Send coverage
-        env:
-          COVERALLS_TOKEN: ${{ secrets.COVERALLS_REPO_TOKEN }}
-        run: goveralls -coverprofile=covprofile -service=github
+      - name: Coveralls
+        uses: coverallsapp/github-action@v2
+        with:
+          github-token: ${{ secrets.COVERALLS_REPO_TOKEN }}
+          file: covprofile
+          format: golang
