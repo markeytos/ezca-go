@@ -161,5 +161,8 @@ func decodeDataJson(data []byte, v any) error {
 	if strings.HasPrefix(string(data), "Error:") {
 		return errors.New(strings.Replace(string(data), "Error:", "api error:", 1))
 	}
+	if strings.HasPrefix(string(data), "Error") {
+		return errors.New(strings.Replace(string(data), "Error", "api error:", 1))
+	}
 	return fmt.Errorf("invalid response from server: %v", err)
 }
