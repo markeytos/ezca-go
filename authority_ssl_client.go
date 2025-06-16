@@ -130,6 +130,9 @@ func (c *Certificate) UnmarshalJSON(jsonBytes []byte) error {
 	if err != nil {
 		return err
 	}
+	if len(certpem) == 0 {
+		return nil
+	}
 	block, _ := pem.Decode([]byte(certpem))
 	if block == nil || block.Type != "CERTIFICATE" {
 		return errors.New("ezca: failed to decode PEM block or not a certificate")
@@ -340,7 +343,7 @@ type san struct {
 }
 
 func marshalSANs(dnsNames, emailAddresses []string, ipAddresses []net.IP, uris []*url.URL) ([]*san, error) {
-	var sans []*san
+	sans := make([]*san, 0, len(dnsNames)+len(emailAddresses)+len(ipAddresses)+len(uris))
 	for _, name := range dnsNames {
 		if err := isASCII(name); err != nil {
 			return nil, err
