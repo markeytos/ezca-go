@@ -24,9 +24,9 @@ type SignOptions struct {
 	SourceTag string
 
 	Duration          time.Duration // Certificate validity duration. Defaults to 90 days if not set.
-	KeyUsages         []KeyUsage
-	ExtendedKeyUsages []ExtKeyUsage
-	SubjectName       string // Overwrite the subject name for the final certificate
+	KeyUsages         []KeyUsage    // Certificate key usages. Defaults to key encipherment and digital signature.
+	ExtendedKeyUsages []ExtKeyUsage // Certificate extended key usages. Defaults to server authentication and client authentication.
+	SubjectName       string        // Overwrite the subject name for the final certificate
 
 	EmailAddresses []string   // Additional Subject Alternate Name Email Address (1)
 	DNSNames       []string   // Additional Subject Alternate Name DNS Name (2)
