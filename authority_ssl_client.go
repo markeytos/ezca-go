@@ -24,9 +24,9 @@ type SignOptions struct {
 	SourceTag string
 
 	Duration          time.Duration // Certificate validity duration. Defaults to 90 days if not set.
-	KeyUsages         []KeyUsage
-	ExtendedKeyUsages []ExtKeyUsage
-	SubjectName       string // Overwrite the subject name for the final certificate
+	KeyUsages         []KeyUsage    // Certificate key usages. Defaults to key encipherment and digital signature.
+	ExtendedKeyUsages []ExtKeyUsage // Certificate extended key usages. Defaults to server authentication and client authentication.
+	SubjectName       string        // Overwrite the subject name for the final certificate
 
 	EmailAddresses []string   // Additional Subject Alternate Name Email Address (1)
 	DNSNames       []string   // Additional Subject Alternate Name DNS Name (2)
@@ -129,6 +129,9 @@ func (c *Certificate) UnmarshalJSON(jsonBytes []byte) error {
 	err := json.Unmarshal(jsonBytes, &certpem)
 	if err != nil {
 		return err
+	}
+	if len(certpem) == 0 {
+		return nil
 	}
 	block, _ := pem.Decode([]byte(certpem))
 	if block == nil || block.Type != "CERTIFICATE" {
@@ -340,7 +343,7 @@ type san struct {
 }
 
 func marshalSANs(dnsNames, emailAddresses []string, ipAddresses []net.IP, uris []*url.URL) ([]*san, error) {
-	var sans []*san
+	sans := make([]*san, 0, len(dnsNames)+len(emailAddresses)+len(ipAddresses)+len(uris))
 	for _, name := range dnsNames {
 		if err := isASCII(name); err != nil {
 			return nil, err
