@@ -3,7 +3,7 @@ module github.com/markeytos/ezca-go
 go 1.24.3
 
 require (
-	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.18.0
+	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.18.1
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.10.1
 	github.com/google/uuid v1.6.0
 	github.com/spf13/cobra v1.9.1
