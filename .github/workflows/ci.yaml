@@ -20,37 +20,39 @@ jobs:
     name: Format
     runs-on: ubuntu-latest
     steps:
-      - name: Set up Go
-        uses: actions/setup-go@v5
       - name: Check out code
         uses: actions/checkout@v6
+      - name: Set up Go
+        uses: actions/setup-go@v6
       - name: Format source
         run: go fmt ./...
   vet:
     name: Vet
     runs-on: ubuntu-latest
     steps:
-      - name: Set up Go
-        uses: actions/setup-go@v5
       - name: Check out code
         uses: actions/checkout@v6
+      - name: Set up Go
+        uses: actions/setup-go@v6
       - name: Vet source
         run: go vet ./...
   test:
     name: Test and Coveralls
     runs-on: ubuntu-latest
+    env:
+      COVERALLS_TOKEN: ${{ secrets.COVERALLS_REPO_TOKEN }}
     steps:
-      - name: Set up Go
-        uses: actions/setup-go@v5
       - name: Check out code
         uses: actions/checkout@v6
+      - name: Set up Go
+        uses: actions/setup-go@v6
       - name: Run Unit tests
         run: go test -race -covermode=atomic -coverprofile=covprofile ./...
       - name: Apply `.test_cover_ignore`
         run: grep -vFf .test_cover_ignore covprofile > tmp && mv tmp covprofile
       - name: Install goveralls
+        if: ${{ env.COVERALLS_TOKEN != '' }}
         run: go install github.com/mattn/goveralls@latest
       - name: Send coverage
-        env:
-          COVERALLS_TOKEN: ${{ secrets.COVERALLS_REPO_TOKEN }}
+        if: ${{ env.COVERALLS_TOKEN != '' }}
         run: goveralls -coverprofile=covprofile -service=github
