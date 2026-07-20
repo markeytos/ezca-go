@@ -23,7 +23,7 @@ jobs:
       - name: Check out code
         uses: actions/checkout@v6
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
       - name: Format source
         run: go fmt ./...
   vet:
@@ -33,7 +33,7 @@ jobs:
       - name: Check out code
         uses: actions/checkout@v6
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
       - name: Vet source
         run: go vet ./...
   test:
@@ -45,7 +45,7 @@ jobs:
       - name: Check out code
         uses: actions/checkout@v6
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
       - name: Run Unit tests
         run: go test -race -covermode=atomic -coverprofile=covprofile ./...
       - name: Apply `.test_cover_ignore`
