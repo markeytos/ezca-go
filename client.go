@@ -194,30 +194,40 @@ func (c Client) newRequest(ctx context.Context, method string, body io.Reader, a
 
 // Create a new EZCA client. Pass the EZCA URL, it will be stripped where only scheme and domain remain
 func NewClient(ezcaURL string, credential azcore.TokenCredential) (*Client, error) {
+	baseURL, err := parseEZCABaseURL(ezcaURL)
+	if err != nil {
+		return nil, err
+	}
+
+	c := &Client{
+		internal:    client.NewClient(credential, ezcaDefaultTokenRequestOptions),
+		ezcaBaseURL: baseURL,
+	}
+	return c, nil
+}
+
+// parseEZCABaseURL strips an EZCA URL down to scheme and host, defaulting to
+// https and requiring https.
+func parseEZCABaseURL(ezcaURL string) (string, error) {
 	// Need to parse twice since on first pass host is not set properly
 	parsedURL, err := url.Parse(ezcaURL)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 	if parsedURL.Scheme == "" {
 		parsedURL.Scheme = "https"
 	} else if parsedURL.Scheme != "https" {
-		return nil, errors.New("ezca: instance must be reached with https")
+		return "", errors.New("ezca: instance must be reached with https")
 	}
 	if parsedURL.Host == "" {
 		parsedURL, err = url.Parse(parsedURL.String())
 		if err != nil {
-			return nil, err
+			return "", err
 		}
 	}
 	baseURL := url.URL{
 		Scheme: parsedURL.Scheme,
 		Host:   parsedURL.Host,
 	}
-
-	c := &Client{
-		internal:    client.NewClient(credential, ezcaDefaultTokenRequestOptions),
-		ezcaBaseURL: baseURL.String(),
-	}
-	return c, nil
+	return baseURL.String(), nil
 }
