@@ -83,6 +83,9 @@ func (c *CertificateClient) RenewCertificateV3(
 	if cert == nil || key == nil {
 		return nil, errors.New("ezca: certificate and private key are required for renewal")
 	}
+	if validityDays < 1 {
+		return nil, errors.New("ezca: validity in days must be a positive number")
+	}
 	if _, ok := cert.PublicKey.(*rsa.PublicKey); !ok {
 		return nil, errors.New("ezca: only RSA certificates are supported for certificate based authentication")
 	}

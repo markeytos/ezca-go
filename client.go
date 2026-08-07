@@ -264,6 +264,9 @@ func parseEZCABaseURL(ezcaURL string) (string, error) {
 			return "", err
 		}
 	}
+	if parsedURL.Host == "" {
+		return "", errors.New("ezca: instance URL must include a host, e.g. https://portal.ezca.io")
+	}
 	baseURL := url.URL{
 		Scheme: parsedURL.Scheme,
 		Host:   parsedURL.Host,

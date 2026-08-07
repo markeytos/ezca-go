@@ -224,6 +224,14 @@ func TestRenewCertificateV3(t *testing.T) {
 		_, err = c.RenewCertificateV3(context.Background(), ecCert, oldKey, csrDER, 365)
 		assert.ErrorContains(t, err, "only RSA certificates are supported")
 	})
+
+	t.Run("rejects non-positive validity", func(t *testing.T) {
+		c := &CertificateClient{baseURL: "https://test.ezca.io", http: &fakeDoer{}, now: func() time.Time { return now }}
+		for _, days := range []int{0, -1} {
+			_, err := c.RenewCertificateV3(context.Background(), oldCert, oldKey, csrDER, days)
+			assert.ErrorContains(t, err, "validity in days must be a positive number")
+		}
+	})
 }
 
 func TestNewCertificateClient(t *testing.T) {
@@ -235,5 +243,11 @@ func TestNewCertificateClient(t *testing.T) {
 	t.Run("rejects http", func(t *testing.T) {
 		_, err := NewCertificateClient("http://test.ezca.io")
 		assert.ErrorContains(t, err, "https")
+	})
+	t.Run("rejects url without a host", func(t *testing.T) {
+		for _, u := range []string{"", "https://"} {
+			_, err := NewCertificateClient(u)
+			assert.ErrorContains(t, err, "must include a host")
+		}
 	})
 }

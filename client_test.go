@@ -300,6 +300,14 @@ func TestNewClient(t *testing.T) {
 			url:        "https://portal ezca.io",
 			compareStr: "invalid character \" \"",
 		},
+		"empty": {
+			url:        "",
+			compareStr: "must include a host",
+		},
+		"scheme only": {
+			url:        "https://",
+			compareStr: "must include a host",
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			c, err := NewClient(v.url, &testshared.MockCredential{})
