@@ -9,19 +9,29 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/cloud"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/google/uuid"
 	"github.com/markeytos/ezca-go/internal/api"
 	"github.com/markeytos/ezca-go/internal/client"
 )
 
-var (
-	ezcaDefaultTokenRequestOptions = policy.TokenRequestOptions{
-		Scopes: []string{"https://management.core.windows.net/.default"},
+func armScope(c cloud.Configuration) (string, error) {
+	if svc, ok := c.Services[cloud.ResourceManager]; ok && svc.Audience != "" {
+		return strings.TrimRight(svc.Audience, "/") + "/.default", nil
 	}
-)
+	switch c.ActiveDirectoryAuthorityHost {
+	case "", cloud.AzurePublic.ActiveDirectoryAuthorityHost:
+		return "https://management.core.windows.net/.default", nil
+	case cloud.AzureGovernment.ActiveDirectoryAuthorityHost:
+		return "https://management.core.usgovcloudapi.net/.default", nil
+	default:
+		return "", fmt.Errorf("ezca: cannot determine Azure Resource Manager scope for cloud with authority host %q; set Services[cloud.ResourceManager].Audience", c.ActiveDirectoryAuthorityHost)
+	}
+}
 
 type Client struct {
 	internal    client.Client
@@ -192,32 +202,74 @@ func (c Client) newRequest(ctx context.Context, method string, body io.Reader, a
 	return http.NewRequestWithContext(ctx, method, reqURL, body)
 }
 
-// Create a new EZCA client. Pass the EZCA URL, it will be stripped where only scheme and domain remain
-func NewClient(ezcaURL string, credential azcore.TokenCredential) (*Client, error) {
+// Option configures a Client created by NewClient.
+type Option func(*clientOptions)
+
+type clientOptions struct {
+	cloud cloud.Configuration
+}
+
+// WithCloud selects the Azure sovereign cloud EZCA is reached in. The client
+// requests a token whose scope is that cloud's Azure Resource Manager audience,
+// so pass cloud.AzureGovernment for Azure Government. When unset, the Azure
+// public cloud is used.
+func WithCloud(c cloud.Configuration) Option {
+	return func(o *clientOptions) { o.cloud = c }
+}
+
+// NewClient creates a new EZCA client. Pass the EZCA URL; it will be stripped
+// where only scheme and domain remain. By default the client authenticates
+// against the Azure public cloud; use WithCloud to target a sovereign cloud
+// such as Azure Government.
+func NewClient(ezcaURL string, credential azcore.TokenCredential, opts ...Option) (*Client, error) {
+	baseURL, err := parseEZCABaseURL(ezcaURL)
+	if err != nil {
+		return nil, err
+	}
+
+	o := clientOptions{cloud: cloud.AzurePublic}
+	for _, fn := range opts {
+		fn(&o)
+	}
+	scope, err := armScope(o.cloud)
+	if err != nil {
+		return nil, err
+	}
+
+	c := &Client{
+		internal: client.NewClient(credential, policy.TokenRequestOptions{
+			Scopes: []string{scope},
+		}),
+		ezcaBaseURL: baseURL,
+	}
+	return c, nil
+}
+
+// parseEZCABaseURL strips an EZCA URL down to scheme and host, defaulting to
+// https and requiring https.
+func parseEZCABaseURL(ezcaURL string) (string, error) {
 	// Need to parse twice since on first pass host is not set properly
 	parsedURL, err := url.Parse(ezcaURL)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 	if parsedURL.Scheme == "" {
 		parsedURL.Scheme = "https"
 	} else if parsedURL.Scheme != "https" {
-		return nil, errors.New("ezca: instance must be reached with https")
+		return "", errors.New("ezca: instance must be reached with https")
 	}
 	if parsedURL.Host == "" {
 		parsedURL, err = url.Parse(parsedURL.String())
 		if err != nil {
-			return nil, err
+			return "", err
 		}
+	}
+	if parsedURL.Host == "" {
+		return "", errors.New("ezca: instance URL must include a host, e.g. https://portal.ezca.io")
 	}
 	baseURL := url.URL{
 		Scheme: parsedURL.Scheme,
 		Host:   parsedURL.Host,
 	}
-
-	c := &Client{
-		internal:    client.NewClient(credential, ezcaDefaultTokenRequestOptions),
-		ezcaBaseURL: baseURL.String(),
-	}
-	return c, nil
+	return baseURL.String(), nil
 }

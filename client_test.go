@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/cloud"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/google/uuid"
 	"github.com/markeytos/ezca-go/internal/api"
 	"github.com/markeytos/ezca-go/internal/client"
@@ -267,11 +269,24 @@ func TestNewClient(t *testing.T) {
 			c, err := NewClient(url, &testshared.MockCredential{})
 			assert.NoError(t, err)
 			assert.Equal(t, &Client{
-				internal:    client.NewClient(&testshared.MockCredential{}, ezcaDefaultTokenRequestOptions),
+				internal: client.NewClient(&testshared.MockCredential{}, policy.TokenRequestOptions{
+					Scopes: []string{"https://management.core.windows.net/.default"},
+				}),
 				ezcaBaseURL: "https://portal.ezca.io",
 			}, c)
 		})
 	}
+
+	t.Run("government cloud uses the government ARM scope", func(t *testing.T) {
+		c, err := NewClient("https://portal.ezca.io", &testshared.MockCredential{}, WithCloud(cloud.AzureGovernment))
+		assert.NoError(t, err)
+		assert.Equal(t, &Client{
+			internal: client.NewClient(&testshared.MockCredential{}, policy.TokenRequestOptions{
+				Scopes: []string{"https://management.core.usgovcloudapi.net/.default"},
+			}),
+			ezcaBaseURL: "https://portal.ezca.io",
+		}, c)
+	})
 
 	for name, v := range map[string]*struct {
 		url        string
@@ -285,6 +300,14 @@ func TestNewClient(t *testing.T) {
 			url:        "https://portal ezca.io",
 			compareStr: "invalid character \" \"",
 		},
+		"empty": {
+			url:        "",
+			compareStr: "must include a host",
+		},
+		"scheme only": {
+			url:        "https://",
+			compareStr: "must include a host",
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			c, err := NewClient(v.url, &testshared.MockCredential{})
@@ -292,6 +315,44 @@ func TestNewClient(t *testing.T) {
 			assert.Nil(t, c)
 		})
 	}
+}
+
+func TestARMScope(t *testing.T) {
+	for name, v := range map[string]struct {
+		cloud cloud.Configuration
+		want  string
+	}{
+		"public":                        {cloud.AzurePublic, "https://management.core.windows.net/.default"},
+		"government":                    {cloud.AzureGovernment, "https://management.core.usgovcloudapi.net/.default"},
+		"zero value defaults to public": {cloud.Configuration{}, "https://management.core.windows.net/.default"},
+		"explicit resource manager audience wins": {
+			cloud.Configuration{
+				ActiveDirectoryAuthorityHost: "https://login.example.com/",
+				Services: map[cloud.ServiceName]cloud.ServiceConfiguration{
+					cloud.ResourceManager: {Audience: "https://management.example.com/"},
+				},
+			},
+			"https://management.example.com/.default",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got, err := armScope(v.cloud)
+			assert.NoError(t, err)
+			assert.Equal(t, v.want, got)
+		})
+	}
+
+	t.Run("unknown cloud without a resource manager audience errors", func(t *testing.T) {
+		_, err := armScope(cloud.Configuration{ActiveDirectoryAuthorityHost: "https://login.example.com/"})
+		assert.ErrorContains(t, err, "cannot determine Azure Resource Manager scope")
+	})
+
+	// Azure China is not a supported cloud: its built-in config carries no
+	// Resource Manager audience, so it falls through to the error.
+	t.Run("china is unsupported", func(t *testing.T) {
+		_, err := armScope(cloud.AzureChina)
+		assert.ErrorContains(t, err, "cannot determine Azure Resource Manager scope")
+	})
 }
 
 func copyInternalAuthority(url *string) func(req *http.Request, res any) error {
