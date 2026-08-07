@@ -128,7 +128,7 @@ func (c *CertificateClient) RenewCertificateV3(
 	if err != nil {
 		return nil, err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 
 	respBytes, err := io.ReadAll(res.Body)
 	if err != nil {
