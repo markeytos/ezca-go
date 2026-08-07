@@ -32,10 +32,6 @@ type httpDoer interface {
 	Do(req *http.Request) (*http.Response, error)
 }
 
-// CertificateClient authenticates to EZCA using an existing certificate and its
-// RSA private key (a certificate-signed JWT) rather than an Azure AD token. It
-// is used for certificate lifecycle operations, such as renewal, where the
-// caller proves possession of a certificate EZCA previously issued.
 type CertificateClient struct {
 	baseURL string
 	http    httpDoer
@@ -75,12 +71,8 @@ type certAuthPayload struct {
 	Payload     certRenewRequest `json:"Payload"`
 }
 
-// RenewCertificateV3 renews an existing EZCA-issued certificate. The cert and
-// its RSA private key authenticate the request; csr is a DER-encoded PKCS#10
-// request whose subject and SANs must match the existing certificate (EZCA
-// re-derives them server side and rejects a mismatch). validityDays is the
-// requested lifetime of the renewed certificate. On success it returns the new
-// leaf certificate followed by the issuing CA and, when present, the root.
+// RenewCertificateV3 renews an existing EZCA-issued certificate by proving
+// ownership of the private key.
 func (c *CertificateClient) RenewCertificateV3(
 	ctx context.Context,
 	cert *x509.Certificate,
