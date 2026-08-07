@@ -67,6 +67,23 @@ func newTestCSR(t *testing.T, cn string) []byte {
 	return der
 }
 
+func badCSR(t *testing.T) []byte {
+	t.Helper()
+
+	der := make([]byte, 16)
+	_, err := rand.Read(der)
+	require.NoError(t, err)
+	return der
+}
+
+func invalidSignature(t *testing.T) []byte {
+	t.Helper()
+
+	der := newTestCSR(t, "test csr")
+	der[18] += 1
+	return der
+}
+
 func TestRenewCertificateV3(t *testing.T) {
 	now := time.Date(2026, 8, 4, 0, 0, 0, 0, time.UTC)
 	oldCert, oldKey := newTestRSACert(t, "app.ezca.io", now.Add(-300*24*time.Hour), now.Add(65*24*time.Hour))
@@ -74,10 +91,26 @@ func TestRenewCertificateV3(t *testing.T) {
 	issuing, _ := newTestRSACert(t, "issuing.ezca.io", now, now.Add(3650*24*time.Hour))
 	root, _ := newTestRSACert(t, "root.ezca.io", now, now.Add(3650*24*time.Hour))
 	csrDER := newTestCSR(t, "app.ezca.io")
+	badCSR := badCSR(t)
+	invalidSigCSR := invalidSignature(t)
 
 	respBody, err := json.Marshal(map[string]string{
 		"CertificatePEM":       certPEM(newLeaf),
 		"IssuingCACertificate": certPEM(issuing),
+		"RootCertificate":      certPEM(root),
+	})
+	require.NoError(t, err)
+
+	noCertRespBody, err := json.Marshal(map[string]string{
+		"CertificatePEM":       "",
+		"IssuingCACertificate": certPEM(issuing),
+		"RootCertificate":      certPEM(root),
+	})
+	require.NoError(t, err)
+
+	noIssuingRespBody, err := json.Marshal(map[string]string{
+		"CertificatePEM":       certPEM(newLeaf),
+		"IssuingCACertificate": "",
 		"RootCertificate":      certPEM(root),
 	})
 	require.NoError(t, err)
@@ -151,6 +184,62 @@ func TestRenewCertificateV3(t *testing.T) {
 		block, _ := pem.Decode([]byte(payload.Certificate))
 		require.NotNil(t, block)
 		assert.Equal(t, oldCert.Raw, block.Bytes)
+	})
+
+	t.Run("empty certificate fails", func(t *testing.T) {
+		doer := &fakeDoer{fn: func(_ *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(bytes.NewReader(noCertRespBody)),
+				Header:     make(http.Header),
+			}, nil
+		}}
+		c := &CertificateClient{baseURL: "https://test.ezca.io", http: doer, now: func() time.Time { return now }}
+		certs, err := c.RenewCertificateV3(context.Background(), oldCert, oldKey, csrDER, 365)
+		assert.ErrorContains(t, err, "certificate was not returned")
+		assert.Nil(t, certs)
+	})
+
+	t.Run("empty issuing certificate fails", func(t *testing.T) {
+		doer := &fakeDoer{fn: func(_ *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(bytes.NewReader(noIssuingRespBody)),
+				Header:     make(http.Header),
+			}, nil
+		}}
+		c := &CertificateClient{baseURL: "https://test.ezca.io", http: doer, now: func() time.Time { return now }}
+		certs, err := c.RenewCertificateV3(context.Background(), oldCert, oldKey, csrDER, 365)
+		assert.ErrorContains(t, err, "certificate issuer was not returned")
+		assert.Nil(t, certs)
+	})
+
+	t.Run("cert not passed fails", func(t *testing.T) {
+		c := &CertificateClient{baseURL: "https://test.ezca.io", http: nil, now: func() time.Time { return now }}
+		certs, err := c.RenewCertificateV3(context.Background(), nil, oldKey, csrDER, 365)
+		assert.ErrorContains(t, err, "certificate and private key are required")
+		assert.Nil(t, certs)
+	})
+
+	t.Run("key not passed fails", func(t *testing.T) {
+		c := &CertificateClient{baseURL: "https://test.ezca.io", http: nil, now: func() time.Time { return now }}
+		certs, err := c.RenewCertificateV3(context.Background(), oldCert, nil, csrDER, 365)
+		assert.ErrorContains(t, err, "certificate and private key are required")
+		assert.Nil(t, certs)
+	})
+
+	t.Run("invalid csr fails", func(t *testing.T) {
+		c := &CertificateClient{baseURL: "https://test.ezca.io", http: nil, now: func() time.Time { return now }}
+		certs, err := c.RenewCertificateV3(context.Background(), oldCert, oldKey, badCSR, 365)
+		assert.Error(t, err)
+		assert.Nil(t, certs)
+	})
+
+	t.Run("invalid signature csr fails", func(t *testing.T) {
+		c := &CertificateClient{baseURL: "https://test.ezca.io", http: nil, now: func() time.Time { return now }}
+		certs, err := c.RenewCertificateV3(context.Background(), oldCert, oldKey, invalidSigCSR, 365)
+		assert.Error(t, err)
+		assert.Nil(t, certs)
 	})
 
 	t.Run("empty root certificate is dropped", func(t *testing.T) {
@@ -248,6 +337,12 @@ func TestNewCertificateClient(t *testing.T) {
 		for _, u := range []string{"", "https://"} {
 			_, err := NewCertificateClient(u)
 			assert.ErrorContains(t, err, "must include a host")
+		}
+	})
+	t.Run("rejects url without a host and using http", func(t *testing.T) {
+		for _, u := range []string{"", "http://"} {
+			_, err := NewCertificateClient(u)
+			assert.ErrorContains(t, err, "https")
 		}
 	})
 }
